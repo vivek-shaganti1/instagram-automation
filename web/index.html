@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Instagram AI Automation — Insights Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Space+Grotesk:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="glass-bg"></div>
+    <div class="dashboard-container">
+        
+        <!-- Header -->
+        <header class="dashboard-header">
+            <div class="brand">
+                <span class="logo-dot"></span>
+                <h1>AI Signal Dashboard</h1>
+            </div>
+            <div class="status-badge live">
+                <span class="pulse"></span>
+                <span>Launchd Scheduler Active</span>
+            </div>
+        </header>
+
+        <!-- Metrics Overview Grid -->
+        <section class="metrics-grid">
+            <div class="card glass-card">
+                <h3>Total Reel Views</h3>
+                <div class="metric-val" id="val-views">0</div>
+                <div class="metric-trend positive">📈 Live Data</div>
+            </div>
+            <div class="card glass-card">
+                <h3>Growth target</h3>
+                <div class="metric-val" id="val-target">100</div>
+                <div class="metric-trend positive" id="val-target-trend">15% daily exponential</div>
+            </div>
+            <div class="card glass-card">
+                <h3>AI Content Strategy</h3>
+                <div class="metric-val" id="val-strategy">Standard</div>
+                <div class="metric-trend" id="val-strategy-desc">Editorial tuning active</div>
+            </div>
+            <div class="card glass-card cta-card">
+                <h3>Automation Controls</h3>
+                <div class="actions">
+                    <button class="btn btn-primary" id="btn-post-now">Post Reel Now</button>
+                    <button class="btn btn-secondary" id="btn-sync-stats">Sync Analytics</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Charts Section -->
+        <section class="charts-section">
+            <div class="card glass-card chart-card">
+                <div class="chart-header">
+                    <h2>Exponential View Growth</h2>
+                    <span class="legend-target">Target</span>
+                    <span class="legend-actual">Actual Views</span>
+                </div>
+                <div class="chart-container">
+                    <canvas id="growthChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- Posts Grid -->
+        <section class="posts-section">
+            <h2>Recently Posted Reels</h2>
+            <div class="posts-grid" id="posts-container">
+                <div class="loading-spinner">Loading posted Reels...</div>
+            </div>
+        </section>
+        
+    </div>
+
+    <!-- Notification Toast -->
+    <div class="toast" id="toast"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>

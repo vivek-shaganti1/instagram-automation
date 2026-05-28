@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Label for this job -->
+    <key>Label</key>
+    <string>com.instagram.ainews.automation</string>
+
+    <!-- The program to run: python3 from current venv -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>cd "/Users/vivekshaganti/instagram_automation" && source venv/bin/activate && python main.py 2>> /Users/vivekshaganti/Library/Logs/instagram_automation.log</string>
+    </array>
+
+    <!-- Run every day at 6:00 AM CST = 12:00 PM UTC -->
+    <!-- Note: launchd uses local time. CST = UTC-6, so 6:00 AM CST = 12:00 PM UTC -->
+    <!-- If your Mac is set to CST/CDT timezone, use Hour=6 -->
+    <!-- If your Mac is in IST (UTC+5:30), use Hour=17 Minute=30 for 6AM CST -->
+    <!-- Run 3 times a day: Morning (7 AM CST / 18:30 IST), Afternoon (12 PM CST / 23:30 IST), Evening (6 PM CST / 05:30 IST) -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <!-- Morning: 7:00 AM CST (18:30 IST) -->
+        <dict>
+            <key>Hour</key>
+            <integer>18</integer>
+            <key>Minute</key>
+            <integer>30</integer>
+        </dict>
+        <!-- Afternoon: 12:00 PM CST (23:30 IST) -->
+        <dict>
+            <key>Hour</key>
+            <integer>23</integer>
+            <key>Minute</key>
+            <integer>30</integer>
+        </dict>
+        <!-- Evening: 6:00 PM CST (5:30 AM IST) -->
+        <dict>
+            <key>Hour</key>
+            <integer>5</integer>
+            <key>Minute</key>
+            <integer>30</integer>
+        </dict>
+    </array>
+
+    <!-- Logging -->
+    <key>StandardOutPath</key>
+    <string>/Users/vivekshaganti/Library/Logs/instagram_automation.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/vivekshaganti/Library/Logs/instagram_automation_error.log</string>
+
+    <!-- Run even if computer was asleep at scheduled time -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <!-- Keep alive: false (run once, not a daemon) -->
+    <key>KeepAlive</key>
+    <false/>
+
+    <!-- Working directory -->
+    <key>WorkingDirectory</key>
+    <string>/Users/vivekshaganti/instagram_automation</string>
+
+    <!-- Environment variables -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin</string>
+        <key>HOME</key>
+        <string>/Users/vivekshaganti</string>
+    </dict>
+</dict>
+</plist>
