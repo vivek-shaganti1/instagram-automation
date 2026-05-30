@@ -1,38 +1,29 @@
-# Credentials - NEVER commit these
-.env
-instagram_session.json
+# dependencies
+node_modules/
+frontend/node_modules/
+backend/node_modules/
 
-# Python
-venv/
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-*.egg-info/
+# builds
+.next/
 dist/
 build/
-.eggs/
 
-# Generated outputs (can be large)
-output/
+# env
+.env
+.env.local
 
-# Logs
+# logs
 logs/
 *.log
 
-# macOS
+# python
+venv/
+__pycache__/
+
+# outputs
+output/
+temp/
+generated/
+
+# mac
 .DS_Store
-.AppleDouble
-.LSOverride
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Keep fonts (committed for portability)
-!assets/fonts/*.ttf
-!assets/fonts/*.otf
-node_modules
