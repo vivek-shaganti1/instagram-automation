@@ -1,6 +1,6 @@
 """
 News researcher: fetches top AI stories from multiple sources
-and uses Gemini to rank + summarize the best 5.
+and uses Grok to rank + summarize the best 5.
 """
 import json
 import time
@@ -9,8 +9,6 @@ import requests
 import feedparser
 from datetime import datetime, timedelta, timezone
 from typing import Optional
-from google import genai
-from google.genai import types as genai_types
 
 from src.utils import get_logger
 
@@ -18,23 +16,21 @@ logger = get_logger("researcher")
 
 # ─── RSS Feeds (copyright-safe headlines + summaries) ────────────────────────
 RSS_FEEDS = [
-    # Tech news
     ("TechCrunch AI", "https://techcrunch.com/category/artificial-intelligence/feed/"),
     ("The Verge AI", "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml"),
     ("Ars Technica AI", "https://feeds.arstechnica.com/arstechnica/technology-lab"),
     ("MIT Tech Review", "https://www.technologyreview.com/feed/"),
     ("VentureBeat AI", "https://venturebeat.com/ai/feed/"),
     ("Wired AI", "https://www.wired.com/feed/tag/artificial-intelligence/rss"),
-    # Google News RSS (no auth needed, copyright-safe summaries)
-    ("Google News AI", "https://news.google.com/rss/search?q=artificial+intelligence+AI&hl=en-US&gl=US&ceid=US:en"),
+    ("Google News RSS", "https://news.google.com/rss/search?q=artificial+intelligence+AI&hl=en-US&gl=US&ceid=US:en"),
     ("Google News LLM", "https://news.google.com/rss/search?q=LLM+language+model+2025&hl=en-US&gl=US&ceid=US:en"),
     ("Google News OpenAI", "https://news.google.com/rss/search?q=OpenAI+Anthropic+Google+DeepMind&hl=en-US&gl=US&ceid=US:en"),
 ]
 
-# ─── Hacker News (top stories via API — no scraping) ─────────────────────────
+# ─── Hacker News (top stories via API) ─────────────────────────
 HN_API = "https://hn.algolia.com/api/v1/search"
 
-# ─── Reddit (public JSON — no auth for listing) ──────────────────────────────
+# ─── Reddit ──────────────────────────────
 REDDIT_SUBS = [
     "artificial",
     "MachineLearning",
@@ -48,7 +44,7 @@ REDDIT_SUBS = [
 class NewsResearcher:
     def __init__(self, gemini_api_key: str, lookback_hours: int = 24):
         self.lookback_hours = lookback_hours
-        self._client = genai.Client(api_key=gemini_api_key)
+        self.api_key = gemini_api_key
         self.cutoff = datetime.now(timezone.utc) - timedelta(hours=lookback_hours)
 
     # ─── Fetchers ─────────────────────────────────────────────────────────────
@@ -78,7 +74,6 @@ class NewsResearcher:
     def _fetch_hacker_news(self) -> list[dict]:
         items = []
         try:
-            # Search HN for AI stories in last 24h
             params = {
                 "query": "AI artificial intelligence LLM machine learning",
                 "tags": "story",
@@ -90,7 +85,7 @@ class NewsResearcher:
             r.raise_for_status()
             hits = r.json().get("hits", [])
             for h in hits:
-                if h.get("points", 0) < 50:  # filter low-engagement
+                if h.get("points", 0) < 50:
                     continue
                 items.append({
                     "source": f"Hacker News ({h.get('points', 0)} pts)",
@@ -115,7 +110,6 @@ class NewsResearcher:
                 posts = r.json().get("data", {}).get("children", [])
                 for p in posts:
                     d = p.get("data", {})
-                    # Skip self-promo, NSFW, low score
                     if d.get("score", 0) < 100 or d.get("over_18"):
                         continue
                     created_utc = d.get("created_utc", 0)
@@ -135,14 +129,13 @@ class NewsResearcher:
             time.sleep(0.5)
         return items
 
-    # ─── Gemini Ranking ───────────────────────────────────────────────────────
+    # ─── Grok Ranking ───────────────────────────────────────────────────────
 
     def _rank_with_gemini(self, all_stories: list[dict], n: int = 5) -> list[dict]:
         if not all_stories:
             logger.error("No stories to rank!")
             return []
 
-        # Deduplicate by title similarity
         seen_titles = set()
         unique = []
         for s in all_stories:
@@ -151,7 +144,7 @@ class NewsResearcher:
                 seen_titles.add(key)
                 unique.append(s)
 
-        logger.info(f"Ranking {len(unique)} unique stories with Gemini...")
+        logger.info(f"Ranking {len(unique)} unique stories with Grok...")
 
         stories_text = "\n\n".join([
             f"[{i+1}] SOURCE: {s['source']}\nTITLE: {s['title']}\nSUMMARY: {s['summary'][:200]}\nURL: {s['url']}"
@@ -197,53 +190,52 @@ STORIES TO ANALYZE:
 
 Return ONLY valid JSON, no markdown, no explanation."""
 
-        # Model fallback chain: try multiple models if rate limited
-        MODELS_TO_TRY = [
-            "gemini-2.0-flash",
-            "gemini-2.5-flash-lite",
-            "gemini-flash-latest",
-            "gemini-2.0-flash-lite",
-        ]
-
-        for model_name in MODELS_TO_TRY:
-            logger.info(f"Trying Gemini model: {model_name}")
-            for attempt in range(2):  # 2 retries per model
-                try:
-                    response = self._client.models.generate_content(
-                        model=model_name,
-                        contents=prompt,
-                        config=genai_types.GenerateContentConfig(
-                            temperature=0.7,
-                            max_output_tokens=4000,
-                        ),
-                    )
-                    text = response.text.strip()
-                    if "```" in text:
-                        text = re.sub(r"```(?:json)?", "", text).replace("```", "").strip()
-                    ranked = json.loads(text)
-                    logger.info(f"Gemini ({model_name}) ranked {len(ranked)} stories")
-                    return ranked
-                except Exception as e:
-                    err_str = str(e)
-                    if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower():
-                        wait = 12 * (2 ** attempt)  # 12s, 24s
-                        logger.warning(f"{model_name} rate limited. Waiting {wait}s...")
-                        time.sleep(wait)
-                    elif "404" in err_str or "NOT_FOUND" in err_str:
-                        logger.warning(f"Model {model_name} not available, trying next...")
-                        break  # Try next model
-                    else:
-                        logger.error(f"Gemini {model_name} failed: {e}")
-                        break
+        try:
+            if self.api_key.startswith("AIzaSy"):
+                logger.info("Querying Gemini API for story ranking...")
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={self.api_key}"
+                headers = {"Content-Type": "application/json"}
+                data = {
+                    "contents": [{
+                        "parts": [{
+                            "text": prompt + "\n\nReturn ONLY valid JSON. Do not include markdown code block syntax."
+                        }]
+                    }],
+                    "generationConfig": {
+                        "responseMimeType": "application/json"
+                    }
+                }
+                response = requests.post(url, headers=headers, json=data, timeout=40)
+                if response.status_code != 200:
+                    raise Exception(f"Gemini API returned status code {response.status_code}: {response.text}")
+                text = response.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
             else:
-                # Both retries failed for this model due to rate limits
-                logger.warning(f"Model {model_name} exhausted, trying next model...")
-                continue
+                logger.info("Querying Groq API for story ranking...")
+                headers = {
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                }
+                data = {
+                    "messages": [
+                        {"role": "user", "content": prompt}
+                    ],
+                    "model": "llama-3.3-70b-versatile",
+                    "temperature": 0.7,
+                    "response_format": {"type": "json_object"}
+                }
+                response = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=data, timeout=40)
+                if response.status_code != 200:
+                    raise Exception(f"Groq API returned status code {response.status_code}: {response.text}")
+                text = response.json()["choices"][0]["message"]["content"].strip()
 
-        logger.warning("All Gemini models exhausted. Using smart fallback story selection.")
-        # Fallback: return first N stories with minimal processing
-        return [self._minimal_story(s) for s in unique[:n]]
-
+            if "```" in text:
+                text = re.sub(r"```(?:json)?", "", text).replace("```", "").strip()
+            ranked = json.loads(text)
+            logger.info(f"API successfully ranked {len(ranked)} stories")
+            return ranked
+        except Exception as e:
+            logger.error(f"Ranking failed: {e}")
+            return [self._minimal_story(s) for s in unique[:n]]
 
     def _minimal_story(self, s: dict) -> dict:
         return {
@@ -270,7 +262,7 @@ Return ONLY valid JSON, no markdown, no explanation."""
                     return datetime(*t[:6], tzinfo=timezone.utc)
                 except Exception:
                     pass
-        return datetime.now(timezone.utc)  # assume recent if no date
+        return datetime.now(timezone.utc)
 
     def _strip_html(self, text: str) -> str:
         clean = re.sub(r"<[^>]+>", " ", text)

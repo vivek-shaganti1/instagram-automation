@@ -2,6 +2,9 @@ import axios from "axios";
 import fs from "fs";
 import path from "path";
 import ffmpeg from "fluent-ffmpeg";
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
 
 export class VideoService {
   private pexelsApiKey: string;
@@ -12,20 +15,66 @@ export class VideoService {
     this.elevenLabsApiKey = process.env.ELEVENLABS_API_KEY || "";
   }
 
-  async generateReel(script: any, category: string, outputDir: string): Promise<string> {
+  async generateReel(script: any, category: string, outputDir: string, theme?: string, storyIndex?: number): Promise<string> {
     const filename = `reel_${category}_${Date.now()}.mp4`;
     const outputPath = path.join(outputDir, filename);
 
-    // 1. Fetch stock video clip from Pexels
-    const videoClipPath = await this.fetchPexelsVideo(category, outputDir);
+    // Retrieve settings from database
+    const apiKeySetting = await prisma.setting.findUnique({ where: { key: "google_ai_api_key" } });
+    const apiKey = apiKeySetting?.value || process.env.GOOGLE_AI_API_KEY || "";
 
-    // 2. Synthesize audio voiceover from script
-    const voiceoverPath = await this.synthesizeVoiceover(script, outputDir);
+    const handleSetting = await prisma.setting.findUnique({ where: { key: "instagram_handle" } });
+    const handle = handleSetting?.value || process.env.INSTAGRAM_HANDLE || "@ai_signal_09";
 
-    // 3. Compile everything together with FFmpeg
-    await this.compileVideo(videoClipPath, voiceoverPath, outputPath);
+    return new Promise((resolve, reject) => {
+      const getProjectRoot = () => {
+        const p2 = path.resolve(__dirname, "..", "..");
+        if (fs.existsSync(path.join(p2, "main.py"))) return p2;
+        const p3 = path.resolve(__dirname, "..", "..", "..");
+        if (fs.existsSync(path.join(p3, "main.py"))) return p3;
+        return "/Users/vivekshaganti/Desktop/Projects/Instagram automation";
+      };
+      const rootDir = getProjectRoot();
+      const pythonBin = path.join(rootDir, "venv", "bin", "python");
+      const cliScript = path.join(rootDir, "render_reel_cli.py");
 
-    return outputPath;
+      const scriptJson = JSON.stringify(script);
+      const tempScriptFile = path.join(outputDir, `script_temp_${Date.now()}.json`);
+      fs.writeFileSync(tempScriptFile, scriptJson, "utf8");
+
+      console.log(`Running python reel compiler: ${pythonBin} ${cliScript} for category ${category}`);
+      
+      let cmd = `"${pythonBin}" "${cliScript}" --script-json "${tempScriptFile}" --category "${category}" --output "${outputPath}" --handle "${handle}" --api-key "${apiKey}"`;
+      if (theme) {
+        cmd += ` --theme "${theme}"`;
+      }
+      if (storyIndex !== undefined) {
+        cmd += ` --story-index "${storyIndex}"`;
+      }
+
+      const { exec } = require("child_process");
+      exec(cmd, { cwd: rootDir }, (error: any, stdout: string, stderr: string) => {
+        console.log("Compiler stdout:", stdout);
+        if (stderr) console.error("Compiler stderr:", stderr);
+
+        try {
+          if (fs.existsSync(tempScriptFile)) fs.unlinkSync(tempScriptFile);
+        } catch (e) {
+          console.error("Failed to delete temp script file:", e);
+        }
+
+        if (error) {
+          console.error("Exec error during Reel compilation:", error);
+          return reject(new Error(`Reel compilation failed: ${stderr || error.message}`));
+        }
+
+        if (stdout.includes("RENDER_SUCCESS")) {
+          resolve(outputPath);
+        } else {
+          reject(new Error(`Compilation failed. Output: ${stdout}`));
+        }
+      });
+    });
   }
 
   private async fetchPexelsVideo(category: string, outputDir: string): Promise<string> {

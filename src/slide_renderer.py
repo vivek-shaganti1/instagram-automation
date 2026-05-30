@@ -13,95 +13,188 @@ from src.utils import get_logger, get_font_path, clean_text, truncate_text
 
 logger = get_logger("slide_renderer")
 
-# ─── Design Constants ─────────────────────────────────────────────────────────
+# ─── Design Constants ───
 CANVAS_SIZE = (1080, 1080)
 PADDING = 80
 SAFE_WIDTH = CANVAS_SIZE[0] - (PADDING * 2)
 
-# Default theme (classic Attio off-white style)
+# Default theme (Light SaaS style)
 DEFAULT_THEME = {
-    "bg_gradient": ((250, 247, 242), (245, 240, 230)), # Warm off-white
-    "bg_card": (255, 255, 255, 255),
-    "bg_card_border": (220, 214, 204, 255),
-    "text_primary": (26, 26, 26, 255),    # Near-black
-    "text_secondary": (90, 85, 78, 255),  # Warm gray
-    "text_accent": (130, 120, 108, 255),  # Muted warm
-    "label_bg": (240, 236, 229, 255),     # Beige tag background
-    "label_text": (60, 54, 46, 255),      # Dark warm label text
-    "divider": (220, 214, 204, 255),      # Subtle divider
-    "highlight": (248, 245, 240, 180),    # Row/card highlight bg
-    "highlight_border": (210, 203, 191, 255),
-    "stat_accent": (45, 38, 28, 255),     # Deep warm brown for stats
+    "bg_gradient": ((255, 255, 255), (245, 247, 250)), # Crisp White (#FFFFFF)
+    "bg_card": (10, 26, 47, 15),                  # Semi-transparent deep navy card
+    "bg_card_border": (10, 26, 47, 30),
+    "text_primary": (10, 26, 47, 255),            # Deep Navy
+    "text_secondary": (71, 85, 105, 255),         # Slate-600
+    "text_accent": (148, 163, 184, 255),          # Slate-400
+    "label_bg": (79, 70, 229, 25),                # Soft Indigo bg
+    "label_text": (79, 70, 229, 255),             # Soft Indigo (#4F46E5)
+    "divider": (10, 26, 47, 30),
+    "highlight": (10, 26, 47, 10),
+    "highlight_border": (79, 70, 229, 80),
+    "stat_accent": (79, 70, 229, 255),            # Soft Indigo (#4F46E5)
     "white": (255, 255, 255, 255),
 }
 
-# Premium, vibrant gradient color systems
+# Premium, high-contrast SaaS color systems
 THEMES = {
-    "neon_teal": {
-        "bg_gradient": ((10, 25, 47), (23, 42, 69)),  # Dark space blue
-        "bg_card": (255, 255, 255, 25),              # Glassmorphism
-        "bg_card_border": (255, 255, 255, 40),
-        "text_primary": (255, 255, 255, 255),
-        "text_secondary": (195, 218, 242, 255),
-        "text_accent": (136, 177, 222, 255),
-        "label_bg": (27, 73, 101, 200),
-        "label_text": (100, 255, 218, 255),           # Neon cyan
-        "divider": (255, 255, 255, 40),
-        "highlight": (255, 255, 255, 15),
-        "highlight_border": (100, 255, 218, 100),
-        "stat_accent": (100, 255, 218, 255),          # Neon cyan stats
+    "apple_minimal": {
+        "bg_gradient": ((240, 240, 242), (225, 225, 230)),
+        "bg_card": (255, 255, 255, 120),
+        "bg_card_border": (200, 200, 205, 100),
+        "text_primary": (25, 25, 27, 255),
+        "text_secondary": (75, 75, 80, 255),
+        "text_accent": (120, 120, 125, 255),
+        "label_bg": (220, 220, 225, 255),
+        "label_text": (25, 25, 27, 255),
+        "divider": (200, 200, 205, 120),
+        "highlight": (25, 25, 27, 10),
+        "highlight_border": (25, 25, 27, 40),
+        "stat_accent": (25, 25, 27, 255),
         "white": (255, 255, 255, 255),
     },
-    "sunset_glow": {
-        "bg_gradient": ((44, 10, 80), (100, 15, 120)), # Deep purple/magenta
-        "bg_card": (255, 255, 255, 30),
-        "bg_card_border": (255, 255, 255, 50),
+    "bloomberg_dark": {
+        "bg_gradient": ((10, 12, 18), (18, 22, 32)),
+        "bg_card": (20, 25, 40, 150),
+        "bg_card_border": (50, 70, 100, 80),
         "text_primary": (255, 255, 255, 255),
-        "text_secondary": (245, 220, 255, 255),
-        "text_accent": (210, 175, 245, 255),
-        "label_bg": (142, 45, 226, 200),
-        "label_text": (255, 105, 180, 255),           # Neon hot pink label
-        "divider": (255, 255, 255, 50),
-        "highlight": (255, 255, 255, 20),
-        "highlight_border": (255, 105, 180, 100),
-        "stat_accent": (255, 105, 180, 255),          # Neon hot pink stats
+        "text_secondary": (170, 185, 210, 255),
+        "text_accent": (120, 135, 155, 255),
+        "label_bg": (25, 30, 45, 200),
+        "label_text": (0, 122, 255, 255),
+        "divider": (50, 70, 100, 60),
+        "highlight": (255, 150, 0, 20),
+        "highlight_border": (255, 150, 0, 120),
+        "stat_accent": (255, 150, 0, 255),
         "white": (255, 255, 255, 255),
     },
-    "warm_peach": {
-        "bg_gradient": ((120, 20, 40), (180, 40, 60)), # Deep crimson/warm rose
-        "bg_card": (255, 255, 255, 35),
-        "bg_card_border": (255, 255, 255, 55),
-        "text_primary": (255, 255, 255, 255),
-        "text_secondary": (255, 215, 225, 255),
-        "text_accent": (255, 180, 195, 255),
-        "label_bg": (220, 40, 80, 200),
-        "label_text": (255, 193, 7, 255),             # Warm amber/yellow
-        "divider": (255, 255, 255, 55),
-        "highlight": (255, 255, 255, 25),
-        "highlight_border": (255, 193, 7, 100),
-        "stat_accent": (255, 193, 7, 255),            # Warm gold stats
+    "startup_editorial": {
+        "bg_gradient": ((253, 252, 249), (245, 242, 235)),
+        "bg_card": (255, 255, 255, 150),
+        "bg_card_border": (220, 215, 200, 120),
+        "text_primary": (12, 15, 23, 255),
+        "text_secondary": (80, 85, 100, 255),
+        "text_accent": (130, 135, 150, 255),
+        "label_bg": (235, 230, 220, 255),
+        "label_text": (12, 15, 23, 255),
+        "divider": (220, 215, 200, 100),
+        "highlight": (12, 15, 23, 8),
+        "highlight_border": (12, 15, 23, 60),
+        "stat_accent": (12, 15, 23, 255),
         "white": (255, 255, 255, 255),
     },
-    "cyber_punk": {
-        "bg_gradient": ((5, 5, 15), (20, 10, 45)),     # Cyber dark violet
-        "bg_card": (255, 255, 255, 22),
-        "bg_card_border": (255, 255, 255, 45),
+    "cyber_documentary": {
+        "bg_gradient": ((15, 15, 17), (24, 24, 28)),
+        "bg_card": (30, 30, 35, 180),
+        "bg_card_border": (50, 60, 50, 100),
         "text_primary": (255, 255, 255, 255),
-        "text_secondary": (220, 210, 245, 255),
-        "text_accent": (175, 150, 230, 255),
-        "label_bg": (60, 20, 110, 200),
-        "label_text": (245, 0, 87, 255),              # Magenta tag text
-        "divider": (255, 255, 255, 45),
-        "highlight": (255, 255, 255, 15),
-        "highlight_border": (245, 0, 87, 100),
-        "stat_accent": (245, 0, 87, 255),              # Bright magenta stats
+        "text_secondary": (180, 185, 180, 255),
+        "text_accent": (120, 125, 120, 255),
+        "label_bg": (20, 30, 20, 200),
+        "label_text": (16, 185, 129, 255),
+        "divider": (50, 60, 50, 80),
+        "highlight": (16, 185, 129, 20),
+        "highlight_border": (16, 185, 129, 120),
+        "stat_accent": (16, 185, 129, 255),
+        "white": (255, 255, 255, 255),
+    },
+    "luxury_white": {
+        "bg_gradient": ((255, 255, 255), (248, 246, 242)),
+        "bg_card": (255, 255, 255, 180),
+        "bg_card_border": (230, 225, 215, 120),
+        "text_primary": (28, 28, 30, 255),
+        "text_secondary": (90, 88, 85, 255),
+        "text_accent": (150, 145, 140, 255),
+        "label_bg": (240, 235, 225, 255),
+        "label_text": (197, 160, 89, 255),
+        "divider": (230, 225, 215, 100),
+        "highlight": (197, 160, 89, 15),
+        "highlight_border": (197, 160, 89, 80),
+        "stat_accent": (197, 160, 89, 255),
+        "white": (255, 255, 255, 255),
+    },
+    "midnight_strategy": {
+        "bg_gradient": ((5, 5, 8), (12, 12, 20)),
+        "bg_card": (15, 15, 25, 180),
+        "bg_card_border": (40, 40, 80, 100),
+        "text_primary": (255, 255, 255, 255),
+        "text_secondary": (180, 185, 210, 255),
+        "text_accent": (110, 115, 140, 255),
+        "label_bg": (15, 15, 35, 200),
+        "label_text": (99, 102, 241, 255),
+        "divider": (40, 40, 80, 80),
+        "highlight": (99, 102, 241, 25),
+        "highlight_border": (99, 102, 241, 120),
+        "stat_accent": (99, 102, 241, 255),
+        "white": (255, 255, 255, 255),
+    },
+    "founder_mode": {
+        "bg_gradient": ((18, 18, 18), (28, 28, 28)),
+        "bg_card": (30, 30, 30, 200),
+        "bg_card_border": (60, 50, 45, 120),
+        "text_primary": (255, 255, 255, 255),
+        "text_secondary": (185, 185, 185, 255),
+        "text_accent": (125, 125, 125, 255),
+        "label_bg": (35, 25, 20, 200),
+        "label_text": (249, 115, 22, 255),
+        "divider": (60, 50, 45, 100),
+        "highlight": (249, 115, 22, 20),
+        "highlight_border": (249, 115, 22, 120),
+        "stat_accent": (249, 115, 22, 255),
+        "white": (255, 255, 255, 255),
+    },
+    "ai_war_room": {
+        "bg_gradient": ((8, 14, 24), (16, 24, 40)),
+        "bg_card": (20, 30, 50, 180),
+        "bg_card_border": (80, 40, 50, 100),
+        "text_primary": (255, 255, 255, 255),
+        "text_secondary": (180, 195, 215, 255),
+        "text_accent": (120, 135, 155, 255),
+        "label_bg": (30, 15, 20, 200),
+        "label_text": (239, 68, 68, 255),
+        "divider": (80, 40, 50, 80),
+        "highlight": (239, 68, 68, 20),
+        "highlight_border": (239, 68, 68, 120),
+        "stat_accent": (239, 68, 68, 255),
+        "white": (255, 255, 255, 255),
+    },
+    "modern_finance": {
+        "bg_gradient": ((12, 20, 18), (20, 30, 28)),
+        "bg_card": (25, 35, 32, 180),
+        "bg_card_border": (45, 65, 55, 100),
+        "text_primary": (255, 255, 255, 255),
+        "text_secondary": (180, 195, 190, 255),
+        "text_accent": (120, 135, 130, 255),
+        "label_bg": (20, 35, 30, 200),
+        "label_text": (52, 211, 153, 255),
+        "divider": (45, 65, 55, 80),
+        "highlight": (52, 211, 153, 20),
+        "highlight_border": (52, 211, 153, 120),
+        "stat_accent": (52, 211, 153, 255),
+        "white": (255, 255, 255, 255),
+    },
+    "intelligence_briefing": {
+        "bg_gradient": ((242, 245, 245), (230, 235, 235)),
+        "bg_card": (255, 255, 255, 150),
+        "bg_card_border": (190, 210, 210, 120),
+        "text_primary": (15, 35, 35, 255),
+        "text_secondary": (70, 90, 90, 255),
+        "text_accent": (120, 140, 140, 255),
+        "label_bg": (215, 225, 225, 255),
+        "label_text": (20, 120, 120, 255),
+        "divider": (190, 210, 210, 100),
+        "highlight": (20, 120, 120, 15),
+        "highlight_border": (20, 120, 120, 80),
+        "stat_accent": (20, 120, 120, 255),
         "white": (255, 255, 255, 255),
     }
 }
 
+from functools import lru_cache
+
 SLIDE_OVERLAY_ALPHA = 200  # Transparency for bg image overlay (0=transparent, 255=opaque)
 
 
+@lru_cache(maxsize=128)
 def _load_font(weight: str, size: int) -> ImageFont.FreeTypeFont:
     """Load Inter font with fallback to PIL default."""
     font_path = get_font_path(weight)
@@ -112,6 +205,7 @@ def _load_font(weight: str, size: int) -> ImageFont.FreeTypeFont:
         logger.warning(f"Font load failed ({weight}, {size}px): {e}")
     # Fallback to PIL default (no TTF)
     return ImageFont.load_default()
+
 
 
 def _text_wrap(text: str, font: ImageFont.FreeTypeFont, max_width: int) -> list[str]:
@@ -146,8 +240,9 @@ def _draw_text_block(
     color: tuple,
     max_width: int,
     line_spacing: float = 1.3,
+    align: str = "left",
 ) -> int:
-    """Draw wrapped text block. Returns the y position after the last line."""
+    """Draw wrapped and aligned text block. Returns the y position after the last line."""
     lines = _text_wrap(clean_text(text), font, max_width)
     dummy_img = Image.new("RGB", (1, 1))
     dummy_draw = ImageDraw.Draw(dummy_img)
@@ -155,7 +250,16 @@ def _draw_text_block(
     line_height = int((bbox[3] - bbox[1]) * line_spacing)
 
     for line in lines:
-        draw.text((x, y), line, font=font, fill=color)
+        line_bbox = dummy_draw.textbbox((0, 0), line, font=font)
+        line_w = line_bbox[2] - line_bbox[0]
+        
+        draw_x = x
+        if align == "center":
+            draw_x = x + (max_width - line_w) // 2
+        elif align == "right":
+            draw_x = x + (max_width - line_w)
+            
+        draw.text((draw_x, y), line, font=font, fill=color)
         y += line_height
     return y
 
@@ -195,7 +299,7 @@ def _composite_background(bg_image_path: Path, theme: dict) -> Image.Image:
     return gradient_bg
 
 
-def _draw_label(draw: ImageDraw.Draw, text: str, x: int, y: int, theme: dict) -> int:
+def _draw_label(draw: ImageDraw.Draw, text: str, x: int, y: int, theme: dict, align: str = "left", max_width: int = SAFE_WIDTH) -> int:
     """Draw a styled label tag. Returns the y after label."""
     font = _load_font("Medium", 22)
     text = clean_text(text.upper())
@@ -206,15 +310,21 @@ def _draw_label(draw: ImageDraw.Draw, text: str, x: int, y: int, theme: dict) ->
     th = bbox[3] - bbox[1]
     pad_x, pad_y = 16, 8
 
+    draw_x = x
+    if align == "center":
+        draw_x = x + (max_width - (tw + pad_x * 2)) // 2
+    elif align == "right":
+        draw_x = x + (max_width - (tw + pad_x * 2))
+
     # Label pill
     draw.rounded_rectangle(
-        [x, y, x + tw + pad_x * 2, y + th + pad_y * 2],
+        [draw_x, y, draw_x + tw + pad_x * 2, y + th + pad_y * 2],
         radius=6,
         fill=theme["label_bg"],
         outline=theme.get("bg_card_border", None),
         width=1 if theme.get("bg_card_border", None) else 0
     )
-    draw.text((x + pad_x, y + pad_y), text, font=font, fill=theme["label_text"])
+    draw.text((draw_x + pad_x, y + pad_y), text, font=font, fill=theme["label_text"])
     return y + th + pad_y * 2 + 20
 
 
@@ -257,60 +367,78 @@ def render_hook_slide(slide: dict, bg_path: Path, handle: str, slide_num: int, t
     canvas = _composite_background(bg_path, theme)
     draw = ImageDraw.Draw(canvas)
 
+    story_index = slide.get("story_index", 0)
+    layout_style = (story_index + slide_num) % 3
+    align = ["left", "center", "right"][layout_style]
+
     y = PADDING + 20
 
     # Label tag
     label = slide.get("label", "AI UPDATE")
-    y = _draw_label(draw, label, PADDING, y, theme)
+    y = _draw_label(draw, label, PADDING, y, theme, align=align, max_width=SAFE_WIDTH)
     y += 24
 
     # Main headline — auto-shrink font size for long headlines
     headline = clean_text(slide.get("headline", ""))
-    # Truncate very long headlines
     if len(headline) > 80:
         headline = headline[:77] + "..."
 
-    # Auto-size: start at 76px, shrink until text fits in 4 lines max
-    for font_size in [76, 64, 52, 44]:
+    # Auto-size: start at 96px for massive cinematic effect, shrink if too long
+    for font_size in [96, 76, 64, 52]:
         font_headline = _load_font("Bold", font_size)
         lines = _text_wrap(headline, font_headline, SAFE_WIDTH)
-        if len(lines) <= 4:
+        if len(lines) <= 3:
             break
 
     dummy_img = Image.new("RGB", (1, 1))
     dummy_draw = ImageDraw.Draw(dummy_img)
     bbox_h = dummy_draw.textbbox((0, 0), "Ag", font=font_headline)
     line_h = int((bbox_h[3] - bbox_h[1]) * 1.15)
+    
     for line in lines:
-        draw.text((PADDING, y), line, font=font_headline, fill=theme["text_primary"])
+        line_bbox = dummy_draw.textbbox((0, 0), line, font=font_headline)
+        line_w = line_bbox[2] - line_bbox[0]
+        
+        draw_x = PADDING
+        if align == "center":
+            draw_x = PADDING + (SAFE_WIDTH - line_w) // 2
+        elif align == "right":
+            draw_x = PADDING + (SAFE_WIDTH - line_w)
+            
+        draw.text((draw_x, y), line, font=font_headline, fill=theme["text_primary"])
         y += line_h
-    y += 22
+    y += 24
 
     # Thin accent divider line
-    draw.line([(PADDING, y), (PADDING + 100, y)], fill=theme["stat_accent"], width=3)
-    y += 24
+    div_w = 120
+    div_x = PADDING
+    if align == "center":
+        div_x = PADDING + (SAFE_WIDTH - div_w) // 2
+    elif align == "right":
+        div_x = PADDING + (SAFE_WIDTH - div_w)
+        
+    draw.line([(div_x, y), (div_x + div_w, y)], fill=theme["stat_accent"], width=4)
+    y += 28
 
     # Subheadline
     sub = clean_text(slide.get("subheadline", ""))
     if sub:
-        font_sub = _load_font("Regular", 32)
-        y = _draw_text_block(draw, sub, PADDING, y, font_sub, theme["text_secondary"], SAFE_WIDTH, 1.4)
-        y += 20
+        font_sub = _load_font("Regular", 30)
+        y = _draw_text_block(draw, sub, PADDING, y, font_sub, theme["text_secondary"], SAFE_WIDTH, 1.4, align=align)
+        y += 24
 
-    # Decorative accent: small geometric element instead of emoji
-    accent_size = 10
-    draw.ellipse(
-        [PADDING, y, PADDING + accent_size, y + accent_size],
-        fill=theme["stat_accent"]
-    )
-    draw.ellipse(
-        [PADDING + 18, y, PADDING + 18 + accent_size, y + accent_size],
-        fill=(*theme["stat_accent"][:3], 150)
-    )
-    draw.ellipse(
-        [PADDING + 36, y, PADDING + 36 + accent_size, y + accent_size],
-        fill=(*theme["stat_accent"][:3], 60)
-    )
+    # Decorative dots
+    accent_size = 12
+    dots_w = 48
+    dots_x = PADDING
+    if align == "center":
+        dots_x = PADDING + (SAFE_WIDTH - dots_w) // 2
+    elif align == "right":
+        dots_x = PADDING + (SAFE_WIDTH - dots_w)
+
+    draw.ellipse([dots_x, y, dots_x + accent_size, y + accent_size], fill=theme["stat_accent"])
+    draw.ellipse([dots_x + 18, y, dots_x + 18 + accent_size, y + accent_size], fill=(*theme["stat_accent"][:3], 150))
+    draw.ellipse([dots_x + 36, y, dots_x + 36 + accent_size, y + accent_size], fill=(*theme["stat_accent"][:3], 60))
 
     # Swipe hint at bottom-right
     font_hint = _load_font("Regular", 22)
@@ -334,12 +462,16 @@ def render_what_happened_slide(slide: dict, bg_path: Path, handle: str, slide_nu
     canvas = _composite_background(bg_path, theme)
     draw = ImageDraw.Draw(canvas)
 
+    story_index = slide.get("story_index", 0)
+    layout_style = (story_index + slide_num) % 3
+    align = ["left", "center", "right"][layout_style]
+
     y = PADDING + 10
 
     # Title
     title = clean_text(slide.get("title", "What Happened"))
     font_title = _load_font("Bold", 46)
-    y = _draw_text_block(draw, title, PADDING, y, font_title, theme["text_primary"], SAFE_WIDTH, 1.2)
+    y = _draw_text_block(draw, title, PADDING, y, font_title, theme["text_primary"], SAFE_WIDTH, 1.2, align=align)
     y += 12
     y = _draw_divider(draw, PADDING, y, SAFE_WIDTH, theme)
     y += 20
@@ -347,13 +479,19 @@ def render_what_happened_slide(slide: dict, bg_path: Path, handle: str, slide_nu
     # Body text
     body = clean_text(slide.get("body", ""))
     font_body = _load_font("Regular", 30)
-    y = _draw_text_block(draw, body, PADDING, y, font_body, theme["text_secondary"], SAFE_WIDTH, 1.55)
+    y = _draw_text_block(draw, body, PADDING, y, font_body, theme["text_secondary"], SAFE_WIDTH, 1.55, align=align)
     y += 30
 
     # Highlighted quote box
     highlight = clean_text(slide.get("highlight", ""))
     if highlight and y < CANVAS_SIZE[1] - 220:
-        box_h = 110
+        box_h = 120
+        # Draw glassmorphism rounded card with drop shadow
+        draw.rounded_rectangle(
+            [PADDING + 4, y + 4, PADDING + SAFE_WIDTH + 4, y + box_h + 4],
+            radius=12,
+            fill=(0, 0, 0, 40) # drop shadow
+        )
         draw.rounded_rectangle(
             [PADDING, y, PADDING + SAFE_WIDTH, y + box_h],
             radius=12,
@@ -363,16 +501,17 @@ def render_what_happened_slide(slide: dict, bg_path: Path, handle: str, slide_nu
         )
         # Left accent bar
         draw.rounded_rectangle(
-            [PADDING, y, PADDING + 4, y + box_h],
-            radius=2,
+            [PADDING, y, PADDING + 6, y + box_h],
+            radius=3,
             fill=theme["stat_accent"],
         )
         font_highlight = _load_font("Medium", 26)
         _draw_text_block(
             draw, f'"{highlight}"',
-            PADDING + 24, y + 22,
+            PADDING + 28, y + 22,
             font_highlight, theme["stat_accent"],
-            SAFE_WIDTH - 40, 1.4
+            SAFE_WIDTH - 48, 1.4,
+            align=align
         )
 
     _draw_brand_handle(draw, handle, theme)
@@ -386,12 +525,16 @@ def render_key_stats_slide(slide: dict, bg_path: Path, handle: str, slide_num: i
     canvas = _composite_background(bg_path, theme)
     draw = ImageDraw.Draw(canvas)
 
+    story_index = slide.get("story_index", 0)
+    layout_style = (story_index + slide_num) % 3
+    align = ["left", "center", "right"][layout_style]
+
     y = PADDING + 10
 
     # Title
     title = clean_text(slide.get("title", "By The Numbers"))
     font_title = _load_font("Bold", 46)
-    y = _draw_text_block(draw, title, PADDING, y, font_title, theme["text_primary"], SAFE_WIDTH)
+    y = _draw_text_block(draw, title, PADDING, y, font_title, theme["text_primary"], SAFE_WIDTH, align=align)
     y += 12
     y = _draw_divider(draw, PADDING, y, SAFE_WIDTH, theme)
     y += 30
@@ -426,7 +569,7 @@ def render_key_stats_slide(slide: dict, bg_path: Path, handle: str, slide_num: i
         num_h = num_bbox[3] - num_bbox[1]
 
         # Use side-by-side if number is reasonably short, otherwise stack
-        use_side_by_side = (num_w < 260) and bool(label_part)
+        use_side_by_side = (num_w < 260) and bool(label_part) and (align == "left")
 
         if use_side_by_side:
             # Wrap label within the remaining width
@@ -441,11 +584,11 @@ def render_key_stats_slide(slide: dict, bg_path: Path, handle: str, slide_num: i
             
             row_h = max(num_h + 24, total_label_h + 24, 90)
             
-            # Draw row background
-            row_bg = theme["highlight"]
+            # Draw row background & shadow
+            draw.rounded_rectangle([PADDING + 3, y + 3, PADDING + SAFE_WIDTH + 3, y + row_h + 3], radius=10, fill=(0, 0, 0, 30))
             draw.rounded_rectangle(
                 [PADDING, y, PADDING + SAFE_WIDTH, y + row_h],
-                radius=10, fill=row_bg,
+                radius=10, fill=theme["highlight"],
                 outline=theme.get("bg_card_border", None),
                 width=1 if theme.get("bg_card_border", None) else 0
             )
@@ -462,7 +605,7 @@ def render_key_stats_slide(slide: dict, bg_path: Path, handle: str, slide_num: i
             for j, line in enumerate(label_lines):
                 draw.text((label_x, label_start_y + j * label_line_h), line, font=font_stat_text, fill=theme["text_secondary"])
         else:
-            # Stacked layout (e.g. if the stat is just a sentence or a very long number)
+            # Stacked layout (supports center and right alignment cleanly)
             num_lines = _text_wrap(num_part, font_stat_num, SAFE_WIDTH - 60)
             dummy_num_bbox = draw.textbbox((0, 0), "Ag", font=font_stat_num)
             num_line_h = int((dummy_num_bbox[3] - dummy_num_bbox[1]) * 1.15)
@@ -483,29 +626,48 @@ def render_key_stats_slide(slide: dict, bg_path: Path, handle: str, slide_num: i
                 
             row_h = max(row_h, 90)
             
-            # Draw row background
-            row_bg = theme["highlight"]
+            # Draw row background & shadow
+            draw.rounded_rectangle([PADDING + 3, y + 3, PADDING + SAFE_WIDTH + 3, y + row_h + 3], radius=10, fill=(0, 0, 0, 30))
             draw.rounded_rectangle(
                 [PADDING, y, PADDING + SAFE_WIDTH, y + row_h],
-                radius=10, fill=row_bg,
+                radius=10, fill=theme["highlight"],
                 outline=theme.get("bg_card_border", None),
                 width=1 if theme.get("bg_card_border", None) else 0
             )
             
-            # Bullet
-            draw.ellipse([PADDING + 16, y + 24, PADDING + 24, y + 32], fill=theme["stat_accent"])
+            # Bullet (only if left aligned)
+            if align == "left":
+                draw.ellipse([PADDING + 16, y + 24, PADDING + 24, y + 32], fill=theme["stat_accent"])
             
             # Number lines
             for j, line in enumerate(num_lines):
-                draw.text((PADDING + 40, y + 12 + j * num_line_h), line, font=font_stat_num, fill=theme["stat_accent"])
+                line_bbox = draw.textbbox((0, 0), line, font=font_stat_num)
+                line_w = line_bbox[2] - line_bbox[0]
+                num_x = PADDING + 40
+                if align == "center":
+                    num_x = PADDING + (SAFE_WIDTH - line_w) // 2
+                elif align == "right":
+                    num_x = PADDING + SAFE_WIDTH - line_w - 40
+                draw.text((num_x, y + 12 + j * num_line_h), line, font=font_stat_num, fill=theme["stat_accent"])
             
             # Label
             if label_part:
                 label_start_y = y + total_num_h + 18
                 for j, line in enumerate(label_lines):
-                    draw.text((PADDING + 40, label_start_y + j * label_line_h), line, font=font_stat_text, fill=theme["text_secondary"])
+                    line_bbox = draw.textbbox((0, 0), line, font=font_stat_text)
+                    line_w = line_bbox[2] - line_bbox[0]
+                    label_x = PADDING + 40
+                    if align == "center":
+                        label_x = PADDING + (SAFE_WIDTH - line_w) // 2
+                    elif align == "right":
+                        label_x = PADDING + SAFE_WIDTH - line_w - 40
+                    draw.text((label_x, label_start_y + j * label_line_h), line, font=font_stat_text, fill=theme["text_secondary"])
 
         y += row_h + 14
+
+    _draw_brand_handle(draw, handle, theme)
+    _draw_slide_indicator(draw, slide_num, total, theme)
+    return canvas.convert("RGB")
 
     _draw_brand_handle(draw, handle, theme)
     _draw_slide_indicator(draw, slide_num, total, theme)
@@ -518,12 +680,16 @@ def render_why_it_matters_slide(slide: dict, bg_path: Path, handle: str, slide_n
     canvas = _composite_background(bg_path, theme)
     draw = ImageDraw.Draw(canvas)
 
+    story_index = slide.get("story_index", 0)
+    layout_style = (story_index + slide_num) % 3
+    align = ["left", "center", "right"][layout_style]
+
     y = PADDING + 10
 
     # Title
     title = clean_text(slide.get("title", "Why This Matters"))
     font_title = _load_font("Bold", 46)
-    y = _draw_text_block(draw, title, PADDING, y, font_title, theme["text_primary"], SAFE_WIDTH)
+    y = _draw_text_block(draw, title, PADDING, y, font_title, theme["text_primary"], SAFE_WIDTH, align=align)
     y += 12
     y = _draw_divider(draw, PADDING, y, SAFE_WIDTH, theme)
     y += 20
@@ -531,17 +697,41 @@ def render_why_it_matters_slide(slide: dict, bg_path: Path, handle: str, slide_n
     # Body
     body = clean_text(slide.get("body", ""))
     font_body = _load_font("Regular", 30)
-    y = _draw_text_block(draw, body, PADDING, y, font_body, theme["text_secondary"], SAFE_WIDTH, 1.55)
+    y = _draw_text_block(draw, body, PADDING, y, font_body, theme["text_secondary"], SAFE_WIDTH, 1.55, align=align)
     y += 30
 
-    # Future insight
+    # Future insight (premium card layout with drop shadow)
     future = clean_text(slide.get("future", ""))
-    if future and y < CANVAS_SIZE[1] - 200:
+    if future and y < CANVAS_SIZE[1] - 220:
+        box_h = 120
+        # Draw glassmorphism rounded card with drop shadow
+        draw.rounded_rectangle(
+            [PADDING + 4, y + 4, PADDING + SAFE_WIDTH + 4, y + box_h + 4],
+            radius=12,
+            fill=(0, 0, 0, 40) # drop shadow
+        )
+        draw.rounded_rectangle(
+            [PADDING, y, PADDING + SAFE_WIDTH, y + box_h],
+            radius=12,
+            fill=theme["highlight"],
+            outline=theme.get("highlight_border", theme["bg_card_border"]),
+            width=1,
+        )
+        # Left accent bar
+        draw.rounded_rectangle(
+            [PADDING, y, PADDING + 6, y + box_h],
+            radius=3,
+            fill=theme["stat_accent"],
+        )
+        
         font_future = _load_font("Medium", 28)
-        label_y = y
-        _draw_label(draw, "The Future", PADDING, label_y, theme)
-        y += 50
-        y = _draw_text_block(draw, future, PADDING, y, font_future, theme["text_primary"], SAFE_WIDTH, 1.4)
+        _draw_text_block(
+            draw, f'"{future}"',
+            PADDING + 28, y + 22,
+            font_future, theme["stat_accent"],
+            SAFE_WIDTH - 48, 1.4,
+            align=align
+        )
 
     _draw_brand_handle(draw, handle, theme)
     _draw_slide_indicator(draw, slide_num, total, theme)
@@ -658,11 +848,64 @@ class SlideRenderer:
         theme = THEMES.get(theme_name, DEFAULT_THEME)
         logger.info(f"Rendering carousel using theme: {theme_name}")
 
-        for i, (slide, bg_path) in enumerate(zip(slides, bg_images)):
-            slide_type = slide.get("type", "hook")
-            slide_num = slide.get("slide_num", i + 1)
+        from concurrent.futures import ThreadPoolExecutor
 
+        def render_single_slide(args):
+            i, orig_slide, bg_path = args
+            slide = dict(orig_slide)
+            slide_type = slide.get("type")
+            
+            # Map alternative keys or missing types
+            if not slide_type or slide_type not in SLIDE_RENDERERS:
+                types = ["hook", "what_happened", "key_stats", "why_it_matters", "cta"]
+                slide_type = types[i % 5]
+                slide["type"] = slide_type
+
+            # If the slide has generic text and is missing layout keys, map them
+            if "text" in slide:
+                text_val = slide["text"]
+                if slide_type == "hook":
+                    if not slide.get("headline"):
+                        slide["headline"] = text_val[:50] + "..." if len(text_val) > 50 else text_val
+                    if not slide.get("subheadline"):
+                        slide["subheadline"] = text_val
+                    if not slide.get("label"):
+                        slide["label"] = "MINDSET" if "motivation" in str(bg_path).lower() else "AI UPDATE"
+                elif slide_type == "what_happened":
+                    if not slide.get("title"):
+                        slide["title"] = "The Hard Truth" if "motivation" in str(bg_path).lower() else "What Happened"
+                    if not slide.get("body"):
+                        slide["body"] = text_val
+                    if not slide.get("highlight"):
+                        slide["highlight"] = "Stay focused on the work." if "motivation" in str(bg_path).lower() else ""
+                elif slide_type == "key_stats":
+                    if not slide.get("title"):
+                        slide["title"] = "Rules to Live By" if "motivation" in str(bg_path).lower() else "By The Numbers"
+                    if not slide.get("stats"):
+                        sentences = [s.strip() for s in text_val.replace(".", ".\n").split("\n") if len(s.strip()) > 5]
+                        slide["stats"] = sentences if sentences else [text_val]
+                elif slide_type == "why_it_matters":
+                    if not slide.get("title"):
+                        slide["title"] = "Why This Matters"
+                    if not slide.get("body"):
+                        slide["body"] = text_val
+                    if not slide.get("future"):
+                        slide["future"] = "Your future self will thank you." if "motivation" in str(bg_path).lower() else ""
+                elif slide_type == "cta":
+                    if not slide.get("question"):
+                        slide["question"] = text_val[:100] + "?" if not text_val.endswith("?") else text_val
+                    if not slide.get("cta"):
+                        slide["cta"] = f"Follow {self.handle} for daily mindset" if "motivation" in str(bg_path).lower() else f"Follow {self.handle} for daily updates"
+                    if not slide.get("tagline"):
+                        slide["tagline"] = "Unleash your potential"
+
+            slide_num = slide.get("slide_num", i + 1)
+            slide["story_index"] = story_index
             output_path = output_dir / f"story_{story_index+1}_slide_{slide_num}_final.jpg"
+
+            if output_path.exists():
+                logger.info(f"Slide already rendered: {output_path.name}")
+                return output_path
 
             logger.info(f"Rendering slide {slide_num}/{total} ({slide_type})")
 
@@ -672,12 +915,17 @@ class SlideRenderer:
                 # Save as high-quality JPEG (Instagram accepts JPEG)
                 img.save(output_path, "JPEG", quality=95, optimize=True)
                 logger.info(f"Saved slide: {output_path.name}")
-                output_paths.append(output_path)
+                return output_path
             except Exception as e:
                 logger.error(f"Slide render failed for slide {slide_num}: {e}")
                 # Emergency fallback
                 fallback = Image.new("RGB", CANVAS_SIZE, (250, 247, 242))
                 fallback.save(output_path, "JPEG", quality=95)
-                output_paths.append(output_path)
+                return output_path
+
+        # Run rendering jobs concurrently
+        jobs = [(i, slide, bg_path) for i, (slide, bg_path) in enumerate(zip(slides, bg_images))]
+        with ThreadPoolExecutor(max_workers=min(len(jobs), 5)) as executor:
+            output_paths = list(executor.map(render_single_slide, jobs))
 
         return output_paths

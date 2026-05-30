@@ -165,6 +165,9 @@ def truncate_text(text: str, max_chars: int) -> str:
 
 def clean_text(text: str) -> str:
     """Remove problematic unicode that PIL can't render."""
+    if text is None:
+        return ""
+    text = str(text)
     replacements = {
         "\u2018": "'", "\u2019": "'",
         "\u201c": '"', "\u201d": '"',

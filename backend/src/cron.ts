@@ -1,20 +1,10 @@
 import cron from "node-cron";
-import { Queue } from "bullmq";
 import { PrismaClient } from "@prisma/client";
 import { InstagramService } from "./services/instagram";
+import { researchQueue } from "./services/queues";
 
 const prisma = new PrismaClient();
 const instagramService = new InstagramService();
-
-const redisHost = process.env.REDIS_HOST || "localhost";
-const redisPort = parseInt(process.env.REDIS_PORT || "6379");
-
-const reelQueue = new Queue("reel-generation-queue", {
-  connection: {
-    host: redisHost,
-    port: redisPort
-  }
-});
 
 // Helper to determine if we should execute aggressive hooks
 async function shouldTriggerAggressiveHooks(): Promise<boolean> {
@@ -28,21 +18,35 @@ async function shouldTriggerAggressiveHooks(): Promise<boolean> {
   return latestMetric.totalViews < (latestMetric.targetViews / 3);
 }
 
-// 1. Morning Reel (AI): 8:00 AM local time
-cron.schedule("0 8 * * *", async () => {
-  console.log("⏰ Morning Cron triggered: Queueing AI news Reel...");
-  const aggressiveHooks = await shouldTriggerAggressiveHooks();
-  await reelQueue.add("morning-reel-job", {
-    category: "ai",
-    aggressiveHooks
+// 1. Morning Reels (AI): 6:00 AM CST - Adaptive 3-5 Posts
+cron.schedule("0 6 * * *", async () => {
+  const latestMetric = await prisma.dailyMetric.findFirst({
+    orderBy: { date: "desc" }
   });
+  let postCount = 5;
+  if (latestMetric && latestMetric.totalViews < (latestMetric.targetViews / 2)) {
+    postCount = 3;
+  }
+  console.log(`⏰ Morning Cron triggered: Queueing ${postCount} AI news Reels at 6:00 AM CST (Adaptive Cadence)...`);
+  const aggressiveHooks = await shouldTriggerAggressiveHooks();
+  for (let i = 0; i < postCount; i++) {
+    await researchQueue.add(`morning-reel-job-${i}`, {
+      category: "ai",
+      aggressiveHooks,
+      storyIndex: i
+    });
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
+}, {
+  scheduled: true,
+  timezone: "America/Chicago"
 });
 
 // 2. Afternoon Reel (Business & Money): 2:00 PM local time
 cron.schedule("0 14 * * *", async () => {
   console.log("⏰ Afternoon Cron triggered: Queueing Business & Money Reel...");
   const aggressiveHooks = await shouldTriggerAggressiveHooks();
-  await reelQueue.add("afternoon-reel-job", {
+  await researchQueue.add("afternoon-reel-job", {
     category: "business",
     aggressiveHooks
   });
@@ -52,7 +56,7 @@ cron.schedule("0 14 * * *", async () => {
 cron.schedule("0 20 * * *", async () => {
   console.log("⏰ Evening Cron triggered: Queueing Motivation & Story Reel...");
   const aggressiveHooks = await shouldTriggerAggressiveHooks();
-  await reelQueue.add("evening-reel-job", {
+  await researchQueue.add("evening-reel-job", {
     category: "motivation",
     aggressiveHooks
   });

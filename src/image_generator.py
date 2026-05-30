@@ -22,9 +22,11 @@ class ImageGenerator:
         if self._client is None:
             try:
                 from google import genai
+                if not self.api_key:
+                    raise ValueError("No API key provided")
                 self._client = genai.Client(api_key=self.api_key)
-            except ImportError:
-                logger.warning("google-genai not installed, falling back to gradient backgrounds")
+            except Exception as e:
+                logger.warning(f"google-genai initialization failed ({e}), falling back to gradient backgrounds")
                 self._client = "fallback"
         return self._client
 

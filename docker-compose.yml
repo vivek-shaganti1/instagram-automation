@@ -4,6 +4,7 @@ services:
   postgres:
     image: postgres:15-alpine
     container_name: saas_postgres
+    restart: always
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
@@ -12,15 +13,68 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - saas_network
 
   redis:
     image: redis:7-alpine
     container_name: saas_redis
+    restart: always
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    networks:
+      - saas_network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: saas_backend
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      - NODE_ENV=production
+      - PORT=8000
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/saas_reels?schema=public
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY}
+      - INSTAGRAM_USERNAME=${INSTAGRAM_USERNAME}
+      - INSTAGRAM_PASSWORD=${INSTAGRAM_PASSWORD}
+      - PEXELS_API_KEY=${PEXELS_API_KEY}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - shared_outputs:/app/output
+    networks:
+      - saas_network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: saas_frontend
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://backend:8000
+    depends_on:
+      - backend
+    networks:
+      - saas_network
 
 volumes:
   postgres_data:
   redis_data:
+  shared_outputs:
+
+networks:
+  saas_network:
+    driver: bridge

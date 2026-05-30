@@ -5,11 +5,58 @@ using PIL for layout/padding and ffmpeg for encoding and audio overlay.
 import subprocess
 import shutil
 from pathlib import Path
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageEnhance
 from src.utils import get_logger, BASE_DIR
 from src.slide_renderer import THEMES, DEFAULT_THEME, _draw_gradient
 
 logger = get_logger("video_generator")
+
+def _apply_motion(img: Image.Image, frame_in_slide: int, total_frames_in_slide: int, motion_type: int) -> Image.Image:
+    """Apply zoom or pan transformations to create a premium cinematic motion effect."""
+    w, h = img.size
+    
+    if motion_type == 0:
+        # Slow Zoom In
+        scale = 1.0 + 0.08 * (frame_in_slide / float(total_frames_in_slide))
+    elif motion_type == 1:
+        # Slow Zoom Out
+        scale = 1.08 - 0.08 * (frame_in_slide / float(total_frames_in_slide))
+    elif motion_type == 2:
+        # Slow Pan Up/Down + Zoom
+        scale = 1.04
+    else:
+        scale = 1.0 + 0.05 * (frame_in_slide / float(total_frames_in_slide))
+        
+    # Resize image
+    new_w = int(w * scale)
+    new_h = int(h * scale)
+    resized = img.resize((new_w, new_h), Image.LANCZOS)
+    
+    # Calculate crop coordinates to keep it 1080x1920
+    # Add slight panning translations over time
+    dx = 0
+    dy = 0
+    if motion_type == 2:
+        # Pan Up: start shifted down, move up
+        progress = frame_in_slide / float(total_frames_in_slide)
+        dy = int(30 * (progress - 0.5))
+    elif motion_type == 3:
+        # Pan Left/Right: move horizontally
+        progress = frame_in_slide / float(total_frames_in_slide)
+        dx = int(30 * (progress - 0.5))
+        
+    left = (new_w - w) // 2 + dx
+    top = (new_h - h) // 2 + dy
+    right = left + w
+    bottom = top + h
+    
+    # Clip bounds to prevent out-of-range crops
+    left = max(0, min(left, new_w - w))
+    top = max(0, min(top, new_h - h))
+    right = left + w
+    bottom = top + h
+    
+    return resized.crop((left, top, right, bottom))
 
 
 class ReelGenerator:
@@ -49,12 +96,15 @@ class ReelGenerator:
 
         try:
             logger.info("Generating vertical frames for Reel...")
-            vertical_frames = []
+            vertical_slide_imgs = []
             
             # Create a vertical background gradient (1080x1920)
             gradient_bg = _draw_gradient((1080, 1920), theme["bg_gradient"][0], theme["bg_gradient"][1])
 
-            for idx, slide_path in enumerate(slide_paths):
+            slide_x = 0
+            slide_y = 420
+
+            for slide_path in slide_paths:
                 # Load the 1080x1080 slide
                 slide_img = Image.open(slide_path).convert("RGBA")
                 
@@ -64,36 +114,76 @@ class ReelGenerator:
                 # Draw a nice soft border/glow around the square slide
                 draw = ImageDraw.Draw(frame)
                 
-                # Slide position: centered vertically
-                # (1920 - 1080) // 2 = 420
-                slide_x = 0
-                slide_y = 420
-                
                 # Draw subtle decorative lines above and below the slide
                 draw.line([(0, slide_y - 2), (1080, slide_y - 2)], fill=theme["divider"], width=1)
                 draw.line([(0, slide_y + 1082), (1080, slide_y + 1082)], fill=theme["divider"], width=1)
 
                 # Paste the slide
                 frame.alpha_composite(slide_img, (slide_x, slide_y))
+                vertical_slide_imgs.append(frame.convert("RGB"))
+
+            # Now, generate smooth cross-fade animation frames at 30fps with cinematic motion and pattern interrupts
+            fps = 30
+            static_frames = int((slide_duration - 0.6) * fps)    # e.g., 3.4s * 30 = 102 frames
+            trans_frames = int(0.6 * fps)                        # e.g., 0.6s * 30 = 18 frames
+            total_frames_per_slide = static_frames + trans_frames
+            frame_idx = 0
+            
+            for i in range(len(vertical_slide_imgs)):
+                current_img = vertical_slide_imgs[i]
+                motion_type = i % 4
                 
-                # Save frame
-                frame_path = temp_dir / f"slide_{idx + 1:03d}.jpg"
-                frame.convert("RGB").save(frame_path, "JPEG", quality=90)
-                vertical_frames.append(frame_path)
+                # 1. Save static frames for the current slide
+                for f in range(static_frames):
+                    # Apply Ken Burns Motion Pan/Zoom
+                    frame_img = _apply_motion(current_img, f, total_frames_per_slide, motion_type)
+                    
+                    # Pattern Interrupt Glow (every 1.5s / 45 frames)
+                    dist_from_pulse = min(abs(f - 45), abs(f - 90))
+                    if dist_from_pulse <= 4:
+                        intensity = 1.0 - (dist_from_pulse / 4.0)
+                        enhancer = ImageEnhance.Brightness(frame_img)
+                        frame_img = enhancer.enhance(1.0 + 0.12 * intensity)
+                        
+                    frame_path = temp_dir / f"frame_{frame_idx:04d}.jpg"
+                    frame_img.save(frame_path, "JPEG", quality=92)
+                    frame_idx += 1
+                
+                # 2. Save transition frames to the next slide
+                if i < len(vertical_slide_imgs) - 1:
+                    next_img = vertical_slide_imgs[i + 1]
+                    next_motion_type = (i + 1) % 4
+                    
+                    for t in range(trans_frames):
+                        f = static_frames + t
+                        alpha = t / float(trans_frames)
+                        
+                        # Apply motion to both current and next slide frames for smooth cross-motion transition
+                        current_frame_motion = _apply_motion(current_img, f, total_frames_per_slide, motion_type)
+                        next_frame_motion = _apply_motion(next_img, t, total_frames_per_slide, next_motion_type)
+                        
+                        blended = Image.blend(current_frame_motion, next_frame_motion, alpha)
+                        frame_path = temp_dir / f"frame_{frame_idx:04d}.jpg"
+                        blended.save(frame_path, "JPEG", quality=92)
+                        frame_idx += 1
+                else:
+                    # Last slide extension
+                    for t in range(trans_frames):
+                        f = static_frames + t
+                        frame_img = _apply_motion(current_img, f, total_frames_per_slide, motion_type)
+                        frame_path = temp_dir / f"frame_{frame_idx:04d}.jpg"
+                        frame_img.save(frame_path, "JPEG", quality=92)
+                        frame_idx += 1
 
-            # Compile into video using ffmpeg
             total_duration = len(slide_paths) * slide_duration
-            logger.info(f"Encoding {len(vertical_frames)} frames into video ({total_duration}s)...")
+            logger.info(f"Encoding {frame_idx} frames into video ({total_duration}s) at 30fps...")
 
-            # Command structure:
-            # -loop 1 -framerate 1/{slide_duration} -i slide_%03d.jpg
-            # -stream_loop -1 -i audio.mp3 (loops audio infinitely)
-            # -t {total_duration} -shortest
+            # Command structure for 30fps frames:
             cmd = [
                 self.ffmpeg_path,
                 "-y",
-                "-framerate", str(1.0 / slide_duration),
-                "-i", str(temp_dir / "slide_%03d.jpg"),
+                "-framerate", "30",
+                "-i", str(temp_dir / "frame_%04d.jpg"),
             ]
 
             if audio_path:
@@ -104,6 +194,7 @@ class ReelGenerator:
 
             cmd.extend([
                 "-c:v", "libx264",
+                "-preset", "superfast",
                 "-pix_fmt", "yuv420p",
                 "-r", "30",  # Output framerate 30fps for smooth upload
             ])

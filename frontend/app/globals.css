@@ -2,41 +2,149 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ==========================================
+   DESIGN SYSTEM - VARIABLES & THEME SETTINGS
+   ========================================== */
 :root {
-  --background: #06060c;
-  --foreground: #f8fafc;
+  /* Core Color Palette */
+  --background: #050816;      /* Minimal luxury midnight blue/black */
+  --foreground: #ffffff;      /* Pure white for primary typography */
+  
+  /* Brand Glow Accents */
+  --cyan-glow: #06b6d4;       
+  --violet-glow: #a855f7;     /* Soft violet accent */
+  --violet-dark: #6b21a8;
+  --amber-glow: #f59e0b;      
+  
+  /* Glassmorphism Configuration */
+  --glass-bg: rgba(15, 23, 42, 0.65);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-blur: 24px;
 }
 
+/* ==========================================
+   BASE STYLES & TYPOGRAPHY
+   ========================================== */
 body {
   color: var(--foreground);
   background-color: var(--background);
-  font-family: 'Outfit', sans-serif;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
   min-height: 100vh;
+  overflow-x: hidden;
+  position: relative;
+  letter-spacing: -0.01em;
 }
 
+/* Premium custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--background);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(168, 85, 247, 0.3);
+}
+
+/* ==========================================
+   COMPONENT STYLES (GLASSMORPHISM & GLOWS)
+   ========================================== */
+
+/* Ultra luxury glass panels */
 .glass-panel {
-  background: rgba(15, 23, 42, 0.45);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.7);
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* Luxury hover effect with soft white border highlight and vertical elevation */
+.glass-card-hover:hover {
+  transform: translateY(-4px);
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.8),
+              0 0 50px -10px rgba(168, 85, 247, 0.1);
+}
+
+/* Premium radial backdrop gradients */
+.radial-glow-top {
+  background: radial-gradient(circle at 50% -20%, rgba(168, 85, 247, 0.15) 0%, rgba(5, 8, 22, 0) 60%);
+}
+
+.radial-glow-card {
+  background: radial-gradient(800px circle at var(--x, 0px) var(--y, 0px), rgba(255, 255, 255, 0.06), transparent 40%);
+}
+
+/* Gradient text */
+.text-gradient {
+  background: linear-gradient(135deg, #ffffff 30%, #a855f7 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.text-gradient-white {
+  background: linear-gradient(135deg, #ffffff 40%, #94a3b8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* ==========================================
+   INTERACTIVE BUTTONS & DECORATIONS
+   ========================================== */
+
+/* High-fidelity glowing primary CTA button */
 .glow-btn {
-  box-shadow: 0 4px 14px rgba(139, 92, 246, 0.35);
-  transition: all 0.2s ease-in-out;
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, #ffffff, #e9d5ff);
+  color: #050816;
+  box-shadow: 0 4px 20px rgba(168, 85, 247, 0.2);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .glow-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(139, 92, 246, 0.55);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 30px rgba(168, 85, 247, 0.4);
+  background: linear-gradient(135deg, #ffffff, #f3e8ff);
+}
+
+.glow-btn:active {
+  transform: translateY(1px);
+}
+
+/* ==========================================
+   MICRO-ANIMATIONS
+   ========================================== */
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-10px) rotate(1deg); }
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
 }
 
 @keyframes pulse-slow {
-  0%, 100% { opacity: 0.3; }
-  50% { opacity: 0.8; }
+  0%, 100% { 
+    opacity: 0.3; 
+    transform: scale(1);
+  }
+  50% { 
+    opacity: 0.7; 
+    transform: scale(1.05);
+  }
 }
 
 .animate-pulse-slow {
-  animation: pulse-slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  animation: pulse-slow 5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
+
+

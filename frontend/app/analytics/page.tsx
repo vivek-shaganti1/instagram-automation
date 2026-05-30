@@ -1,14 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 import { RotateCw, TrendingUp } from "lucide-react";
 
 export default function AnalyticsPage() {
+  const router = useRouter();
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const cachedUser = localStorage.getItem("user");
+    if (!cachedUser) {
+      router.push("/login");
+      return;
+    }
+
     fetch("http://localhost:8000/api/stats")
       .then((res) => res.json())
       .then((data) => {
@@ -36,7 +44,7 @@ export default function AnalyticsPage() {
 
   // Fallback mock graph data if database has no entries yet
   const chartData = sortedDates.length > 0 
-    ? sortedDates.map((date, index) => ({
+    ? sortedDates.map((date) => ({
         name: date.split("-").slice(1).join("/"), // "MM/DD"
         "Actual Views": dailyStats[date].total_views,
         "Target Views": dailyStats[date].target_views,

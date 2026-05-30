@@ -1,13 +1,21 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { RotateCw, CheckCircle2, AlertTriangle, Eye, Video } from "lucide-react";
 
 export default function LibraryPage() {
+  const router = useRouter();
   const [reels, setReels] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const cachedUser = localStorage.getItem("user");
+    if (!cachedUser) {
+      router.push("/login");
+      return;
+    }
+
     fetch("http://localhost:8000/api/stats")
       .then(res => res.json())
       .then(data => {
@@ -63,6 +71,8 @@ export default function LibraryPage() {
                   <div className="absolute top-3 left-3 px-2.5 py-1 rounded-full bg-slate-900/80 backdrop-blur-sm border border-white/5 text-[10px] font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
                     {reel.status === "UPLOADED" ? (
                       <CheckCircle2 className="w-3 h-3 text-green-400" />
+                    ) : reel.status === "FAILED" ? (
+                      <span className="text-red-400 font-semibold font-mono">FAILED</span>
                     ) : (
                       <AlertTriangle className="w-3 h-3 text-amber-500" />
                     )}

@@ -35,3 +35,4 @@ logs/
 # Keep fonts (committed for portability)
 !assets/fonts/*.ttf
 !assets/fonts/*.otf
+node_modules

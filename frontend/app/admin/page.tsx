@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { Play, Pause, Terminal, Trash2, ShieldCheck, Check } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Play, Pause, Terminal, Trash2, ShieldCheck } from "lucide-react";
 
 export default function AdminPage() {
+  const router = useRouter();
   const [logs, setLogs] = useState<string[]>([
     "2026-05-28 23:20:00 [INFO] scheduler - Starting morning AI Reel generation",
     "2026-05-28 23:20:02 [INFO] gemini - Generating script topic: 3 AI Tools Students Must Use",
@@ -17,6 +19,13 @@ export default function AdminPage() {
   ]);
   
   const [schedulerActive, setSchedulerActive] = useState(true);
+
+  useEffect(() => {
+    const cachedUser = localStorage.getItem("user");
+    if (!cachedUser) {
+      router.push("/login");
+    }
+  }, []);
 
   const clearLogs = () => {
     setLogs([]);

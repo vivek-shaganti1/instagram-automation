@@ -68,6 +68,7 @@ def run_automation(
     test_post: bool = False,
     n_posts: int = None,
     run_mode: str = "auto",
+    story_index: int = 0,
 ):
     """
     Main automation pipeline.
@@ -108,6 +109,8 @@ def run_automation(
     tracker = PostTracker()
     analytics_data = tracker.get_latest_analytics()
     use_aggressive = analytics_data.get("settings", {}).get("aggressive_hooks", False)
+    winning_hooks = analytics_data.get("settings", {}).get("winning_hooks", [])
+    losing_hooks = analytics_data.get("settings", {}).get("losing_hooks", [])
     
     # Auto-adjust theme to the best performing one if it is from the same category
     best_theme = analytics_data.get("settings", {}).get("best_theme", active_theme)
@@ -135,7 +138,7 @@ def run_automation(
 
     category = active_cfg["category"]
     headline_for_images = "AI News"
-    story_index_prefix = 0
+    story_index_prefix = story_index
 
     if category == "ai":
         logger.info("\n📰 STEP 1: Researching top AI news...")
@@ -143,27 +146,32 @@ def run_automation(
             gemini_api_key=config["api_key"],
             lookback_hours=config["lookback_hours"],
         )
-        stories = researcher.research(n_stories=1)
-        if not stories:
-            logger.error("No AI stories found! Aborting.")
+        stories = researcher.research(n_stories=5)
+        if not stories or len(stories) <= story_index:
+            logger.error(f"No AI story at index {story_index} found! Aborting.")
             return
-        story = stories[0]
+        story = stories[story_index]
         headline_for_images = story.get("headline", "AI News")
         logger.info(f"Selected AI story: {headline_for_images}")
 
         logger.info("\n✍️  STEP 2: Generating AI news content...")
-        carousel_content = content_gen.generate_carousel_content(story, aggressive_hooks=use_aggressive)
-        story_index_prefix = 0
+        carousel_content = content_gen.generate_carousel_content(
+            story,
+            aggressive_hooks=use_aggressive,
+            winning_hooks=winning_hooks,
+            losing_hooks=losing_hooks
+        )
+        story_index_prefix = story_index
     elif category == "business":
         logger.info("\n✍️  STEP 1 & 2: Generating Business & Money content...")
         carousel_content = content_gen.generate_business_content(aggressive_hooks=use_aggressive)
         headline_for_images = carousel_content["slides"][0].get("headline", "Business Idea")
-        story_index_prefix = 1
+        story_index_prefix = 10 + story_index
     else:  # motivation
         logger.info("\n✍️  STEP 1 & 2: Generating Motivation & Story content...")
         carousel_content = content_gen.generate_motivation_content(aggressive_hooks=use_aggressive)
         headline_for_images = carousel_content["slides"][0].get("headline", "Motivation")
-        story_index_prefix = 2
+        story_index_prefix = 20 + story_index
 
     # ─── Step 3: Generate Images ──────────────────────────────────────────────
     logger.info("\n🎨 STEP 3: Generating background images with Imagen 3...")
@@ -264,6 +272,7 @@ def main():
     parser.add_argument("--generate-only", action="store_true", help="Generate slides but don't post")
     parser.add_argument("--mode", type=str, choices=["auto", "morning", "afternoon", "evening"], default="auto", help="Override schedule run mode")
     parser.add_argument("--n", type=int, help="Override number of posts", default=None)
+    parser.add_argument("--story-index", type=int, default=0, help="Index of the researched story to use (0-4)")
     args = parser.parse_args()
 
     config = load_config()
@@ -289,6 +298,7 @@ def main():
         dry_run=dry_run,
         test_post=args.test_post,
         run_mode=args.mode,
+        story_index=args.story_index,
     )
 
 

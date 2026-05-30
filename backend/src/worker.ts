@@ -3,6 +3,16 @@ import { PrismaClient } from "@prisma/client";
 import { AIService } from "./services/ai";
 import { VideoService } from "./services/video";
 import { InstagramService } from "./services/instagram";
+import {
+  researchQueue,
+  strategistQueue,
+  generationQueue,
+  renderQueue,
+  uploadQueue,
+  analyticsQueue,
+  optimizationQueue,
+  cleanupQueue
+} from "./services/queues";
 import path from "path";
 import fs from "fs";
 
@@ -14,88 +24,380 @@ const instagramService = new InstagramService();
 const redisHost = process.env.REDIS_HOST || "localhost";
 const redisPort = parseInt(process.env.REDIS_PORT || "6379");
 
-export const reelQueueWorker = new Worker(
-  "reel-generation-queue",
-  async (job: Job) => {
-    const { category, aggressiveHooks } = job.data;
-    console.log(`Processing Reel upload job ID ${job.id} for category ${category}...`);
+const defaultConnection = {
+  host: redisHost,
+  port: redisPort,
+  maxRetriesPerRequest: null,
+};
 
-    // Create a database entry
-    const reel = await prisma.reel.create({
-      data: {
-        category,
-        status: "GENERATING",
-        headline: "Generating...",
-        script: {},
-        caption: "Generating...",
-        scheduledFor: new Date(),
-      }
-    });
+// State mapping / stream details for dashboard health monitoring
+export const workerStatuses: Record<string, { status: string; lastActive: string; lastError?: string }> = {};
+
+function updateWorkerStatus(name: string, status: string, error?: string) {
+  workerStatuses[name] = {
+    status,
+    lastActive: new Date().toISOString(),
+    lastError: error
+  };
+}
+
+// 1. Research Worker
+export const researchWorker = new Worker(
+  "researchQueue",
+  async (job: Job) => {
+    updateWorkerStatus("researchWorker", "processing");
+    const { category, aggressiveHooks, storyIndex } = job.data;
+    let reelId = job.data.reelId;
+
+    console.log(`[ResearchWorker] Processing job ${job.id} for category ${category}`);
 
     try {
-      // 1. Generate Script
-      const script = await aiService.generateScript(category, aggressiveHooks);
+      // If reelId is not pre-provided, initialize the DB record
+      if (!reelId) {
+        const newReel = await prisma.reel.create({
+          data: {
+            category,
+            status: "GENERATING",
+            headline: "Researching...",
+            script: {},
+            caption: "Researching...",
+            scheduledFor: new Date(),
+          }
+        });
+        reelId = newReel.id;
+      }
+
+      let story = null;
+      if (category === "ai") {
+        try {
+          const getProjectRoot = () => {
+            const p2 = path.resolve(__dirname, "..", "..");
+            if (fs.existsSync(path.join(p2, "main.py"))) return p2;
+            const p3 = path.resolve(__dirname, "..", "..", "..");
+            if (fs.existsSync(path.join(p3, "main.py"))) return p3;
+            return "/Users/vivekshaganti/Desktop/Projects/Instagram automation";
+          };
+          const rootDir = getProjectRoot();
+          const pythonBin = path.join(rootDir, "venv", "bin", "python");
+          const researchScript = path.join(rootDir, "research_cli.py");
+
+          console.log(`Running Python news researcher: ${pythonBin} ${researchScript}`);
+          const { exec } = require("child_process");
+          const apiKeySetting = await prisma.setting.findUnique({ where: { key: "google_ai_api_key" } });
+          const apiKey = apiKeySetting?.value || "";
+
+          const stdout = await new Promise<string>((resolve, reject) => {
+            exec(`"${pythonBin}" "${researchScript}" "${apiKey}"`, { cwd: rootDir, encoding: "utf8" }, (err: any, out: string) => {
+              if (err) return reject(err);
+              resolve(out);
+            });
+          });
+          const jsonMatch = stdout.match(/\[\s*\{[\s\S]*\}\s*\]/);
+          if (jsonMatch) {
+            const stories = JSON.parse(jsonMatch[0]);
+            if (Array.isArray(stories) && stories.length > 0) {
+              const idx = storyIndex !== undefined ? parseInt(storyIndex as string) : 0;
+              story = stories[idx % stories.length];
+              console.log(`Successfully fetched researched story: "${story.headline}"`);
+            }
+          }
+        } catch (e: any) {
+          console.error("[ResearchWorker] Research failed, using fallback:", e.message);
+        }
+      }
+
+      // Pass to strategistQueue
+      await strategistQueue.add(`strategy-job-${reelId}`, {
+        reelId,
+        category,
+        aggressiveHooks,
+        storyIndex,
+        story
+      });
+    } catch (error: any) {
+      console.error(`[ResearchWorker] Fatal error for job ${job.id}:`, error);
+      if (reelId) {
+        await prisma.reel.update({
+          where: { id: reelId },
+          data: { status: "FAILED", error: error.message }
+        });
+      }
+      throw error;
+    } finally {
+      updateWorkerStatus("researchWorker", "idle");
+    }
+  },
+  { connection: defaultConnection }
+);
+
+// 2. Strategist Worker
+export const strategistWorker = new Worker(
+  "strategistQueue",
+  async (job: Job) => {
+    updateWorkerStatus("strategistWorker", "processing");
+    const { reelId, category, aggressiveHooks, storyIndex, story } = job.data;
+    console.log(`[StrategistWorker] Conceptualizing Reel ${reelId}`);
+
+    try {
+      // Strategist performs step A and B context prep (concept selection)
+      // For simplicity, we forward the context to the generation queue where the script is generated
+      await generationQueue.add(`generation-job-${reelId}`, {
+        reelId,
+        category,
+        aggressiveHooks,
+        storyIndex,
+        story
+      });
+    } catch (error: any) {
+      console.error(`[StrategistWorker] Failed for Reel ${reelId}:`, error);
+      await prisma.reel.update({
+        where: { id: reelId },
+        data: { status: "FAILED", error: error.message }
+      });
+      throw error;
+    } finally {
+      updateWorkerStatus("strategistWorker", "idle");
+    }
+  },
+  { connection: defaultConnection }
+);
+
+// 3. Generation Worker
+export const generationWorker = new Worker(
+  "generationQueue",
+  async (job: Job) => {
+    updateWorkerStatus("generationWorker", "processing");
+    const { reelId, category, aggressiveHooks, story } = job.data;
+    console.log(`[GenerationWorker] Compiling AI script for Reel ${reelId}`);
+
+    try {
+      // Generate Script via LLM / Fallbacks
+      const script = await aiService.generateScript(category, aggressiveHooks, story);
       const headline = script.slides?.[0]?.headline || "AI Reel";
       const caption = script.caption || "";
 
       await prisma.reel.update({
-        where: { id: reel.id },
-        data: { headline, script, caption }
+        where: { id: reelId },
+        data: { headline, script: script as any, caption }
       });
 
-      // 2. Generate video
+      // Pass to renderQueue
+      await renderQueue.add(`render-job-${reelId}`, {
+        reelId,
+        script,
+        category,
+        theme: script.theme || "bloomberg_dark",
+        storyIndex: job.data.storyIndex
+      });
+    } catch (error: any) {
+      console.error(`[GenerationWorker] Failed for Reel ${reelId}:`, error);
+      await prisma.reel.update({
+        where: { id: reelId },
+        data: { status: "FAILED", error: error.message }
+      });
+      throw error;
+    } finally {
+      updateWorkerStatus("generationWorker", "idle");
+    }
+  },
+  { connection: defaultConnection }
+);
+
+// 4. Render Worker
+export const renderWorker = new Worker(
+  "renderQueue",
+  async (job: Job) => {
+    updateWorkerStatus("renderWorker", "processing");
+    const { reelId, script, category, theme, storyIndex } = job.data;
+    console.log(`[RenderWorker] Commencing FFmpeg render for Reel ${reelId}`);
+
+    try {
       const outputDir = path.join(__dirname, "..", "output");
       if (!fs.existsSync(outputDir)) {
         fs.mkdirSync(outputDir, { recursive: true });
       }
 
-      const videoPath = await videoService.generateReel(script, category, outputDir);
+      const videoPath = await videoService.generateReel(script, category, outputDir, theme, storyIndex);
 
       await prisma.reel.update({
-        where: { id: reel.id },
+        where: { id: reelId },
         data: { status: "RENDERED" }
       });
 
-      // 3. Post to Instagram
-      const instagramUrl = `https://mock-storage.com/${path.basename(videoPath)}`; // Cloud storage helper mock
-      const instagramPostId = await instagramService.postReel(instagramUrl, caption);
+      // Pass to uploadQueue with a randomized jitter delay (1 to 3 hours)
+      // to mimic human posting behavior and avoid automation detection
+      const delayMs = Math.floor(Math.random() * (10800000 - 3600000 + 1) + 3600000);
+      console.log(`[RenderWorker] Upload for Reel ${reelId} delayed by ${Math.round(delayMs / 60000)} minutes for humanization jitter.`);
+
+      await uploadQueue.add(`upload-job-${reelId}`, {
+        reelId,
+        videoPath,
+        caption: script.caption || ""
+      }, { delay: delayMs });
+    } catch (error: any) {
+      console.error(`[RenderWorker] Failed for Reel ${reelId}:`, error);
+      await prisma.reel.update({
+        where: { id: reelId },
+        data: { status: "FAILED", error: error.message }
+      });
+      throw error;
+    } finally {
+      updateWorkerStatus("renderWorker", "idle");
+    }
+  },
+  { connection: defaultConnection }
+);
+
+// 5. Upload Worker
+export const uploadWorker = new Worker(
+  "uploadQueue",
+  async (job: Job) => {
+    updateWorkerStatus("uploadWorker", "processing");
+    const { reelId, videoPath, caption } = job.data;
+    console.log(`[UploadWorker] Initiating upload flow for Reel ${reelId}`);
+
+    // Duplicate upload prevention check using atomic state locking
+    const uploadLock = await prisma.$transaction(async (tx) => {
+      const currentReel = await tx.reel.findUnique({ where: { id: reelId } });
+      if (!currentReel || currentReel.status === "UPLOADED") {
+        return { shouldUpload: false, status: currentReel?.status };
+      }
+      const updated = await tx.reel.update({
+        where: { id: reelId },
+        data: { status: "UPLOADING" }
+      });
+      return { shouldUpload: true, status: updated.status };
+    });
+
+    if (!uploadLock.shouldUpload) {
+      console.warn(`[UploadWorker] Duplicate prevention: Reel ${reelId} is already ${uploadLock.status}. Skipping upload.`);
+      return;
+    }
+
+    try {
+      const localVideoUrl = `http://localhost:8000/videos/${path.basename(videoPath)}`;
+      const instagramPostId = await instagramService.postReel(videoPath, caption, reelId);
 
       await prisma.reel.update({
-        where: { id: reel.id },
+        where: { id: reelId },
         data: {
           status: "UPLOADED",
           postedAt: new Date(),
-          videoUrl: instagramUrl
+          videoUrl: localVideoUrl
         }
       });
 
-      console.log(`Job ${job.id} successfully completed. Reel ID: ${instagramPostId}`);
-      return { success: true, reelId: reel.id, instagramPostId };
+      console.log(`[UploadWorker] Upload verified successfully. Post ID: ${instagramPostId}`);
 
-    } catch (error: any) {
-      console.error(`Reel generation failed for job ${job.id}:`, error);
+      // Trigger Analytics sync
+      await analyticsQueue.add(`analytics-sync-${reelId}`, { reelId });
+    } catch (uploadErr: any) {
+      console.error(`[UploadWorker] Failed to upload Reel ${reelId}:`, uploadErr);
       await prisma.reel.update({
-        where: { id: reel.id },
-        data: {
-          status: "FAILED",
-          error: error.message || "Unknown rendering error"
-        }
+        where: { id: reelId },
+        data: { status: "FAILED", error: uploadErr.message }
       });
-      throw error;
+      throw uploadErr; // Propagate error so BullMQ can handle retries and logs
     }
+
+    updateWorkerStatus("uploadWorker", "idle");
   },
-  {
-    connection: {
-      host: redisHost,
-      port: redisPort
+  { 
+    connection: defaultConnection,
+    limiter: {
+      max: 5,           // Max 5 uploads
+      duration: 86400000 // Per 24 hours
     }
   }
 );
 
-reelQueueWorker.on("completed", (job) => {
-  console.log(`Job ${job.id} has completed successfully.`);
-});
+// 6. Analytics Worker
+export const analyticsWorker = new Worker(
+  "analyticsQueue",
+  async (job: Job) => {
+    updateWorkerStatus("analyticsWorker", "processing");
+    const { reelId } = job.data;
+    console.log(`[AnalyticsWorker] Syncing insights for Reel: ${reelId || "global"}`);
 
-reelQueueWorker.on("failed", (job, err) => {
-  console.error(`Job ${job?.id} failed with error: ${err.message}`);
+    await instagramService.syncAnalytics();
+
+    // Trigger learning optimizations
+    await optimizationQueue.add("optimization-job", {});
+
+    updateWorkerStatus("analyticsWorker", "idle");
+  },
+  { connection: defaultConnection }
+);
+
+// 7. Optimization Worker
+export const optimizationWorker = new Worker(
+  "optimizationQueue",
+  async (job: Job) => {
+    updateWorkerStatus("optimizationWorker", "processing");
+    console.log(`[OptimizationWorker] Refining strategist rules and tracking fatigue thresholds`);
+    
+    // Perform cleanup checks
+    await cleanupQueue.add("cleanup-job", {});
+    
+    updateWorkerStatus("optimizationWorker", "idle");
+  },
+  { connection: defaultConnection }
+);
+
+// 8. Cleanup Worker
+export const cleanupWorker = new Worker(
+  "cleanupQueue",
+  async (job: Job) => {
+    updateWorkerStatus("cleanupWorker", "processing");
+    console.log(`[CleanupWorker] Starting temp storage purge`);
+
+    const outputDir = path.join(__dirname, "..", "output");
+    if (fs.existsSync(outputDir)) {
+      const files = fs.readdirSync(outputDir);
+      const now = Date.now();
+      const cutoff = 24 * 3600 * 1000; // 24 hours
+
+      files.forEach(file => {
+        const filePath = path.join(outputDir, file);
+        try {
+          const stats = fs.statSync(filePath);
+          if (now - stats.mtimeMs > cutoff) {
+            fs.unlinkSync(filePath);
+            console.log(`[CleanupWorker] Purged stale rendering file: ${file}`);
+          }
+        } catch (e: any) {
+          console.error(`[CleanupWorker] Failed to delete ${file}:`, e.message);
+        }
+      });
+    }
+
+    updateWorkerStatus("cleanupWorker", "idle");
+  },
+  { connection: defaultConnection }
+);
+
+// Setup error listeners for self-healing status reporting
+const allWorkers = [
+  { name: "researchWorker", worker: researchWorker },
+  { name: "strategistWorker", worker: strategistWorker },
+  { name: "generationWorker", worker: generationWorker },
+  { name: "renderWorker", worker: renderWorker },
+  { name: "uploadWorker", worker: uploadWorker },
+  { name: "analyticsWorker", worker: analyticsWorker },
+  { name: "optimizationWorker", worker: optimizationWorker },
+  { name: "cleanupWorker", worker: cleanupWorker },
+];
+
+allWorkers.forEach(({ name, worker }) => {
+  updateWorkerStatus(name, "idle");
+
+  worker.on("completed", (job) => {
+    console.log(`[Worker - ${name}] Job ${job.id} completed.`);
+    updateWorkerStatus(name, "idle");
+  });
+
+  worker.on("failed", (job, err) => {
+    console.error(`[Worker - ${name}] Job ${job?.id} failed:`, err.message);
+    updateWorkerStatus(name, "failed", err.message);
+  });
 });

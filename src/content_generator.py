@@ -1,11 +1,5 @@
-"""
-Content generator: uses Gemini to create slide-by-slide content
-for each carousel post.
-"""
+import requests
 import json
-import re
-from google import genai
-from google.genai import types as genai_types
 
 from src.utils import get_logger, get_today_str
 
@@ -38,10 +32,148 @@ SLIDE_TEMPLATES = {
 
 class ContentGenerator:
     def __init__(self, gemini_api_key: str, instagram_handle: str = "@ainewsdaily"):
-        self._client = genai.Client(api_key=gemini_api_key)
+        self.api_key = gemini_api_key
         self.handle = instagram_handle
 
-    def generate_carousel_content(self, story: dict, aggressive_hooks: bool = False) -> dict:
+    def _query_grok(self, prompt: str) -> dict:
+        try:
+            import re
+            if self.api_key.startswith("AIzaSy"):
+                logger.info("Querying Gemini API for script content...")
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={self.api_key}"
+                headers = {"Content-Type": "application/json"}
+                data = {
+                    "contents": [{
+                        "parts": [{
+                            "text": prompt + "\n\nReturn ONLY valid JSON. Do not include markdown code block syntax."
+                        }]
+                    }],
+                    "generationConfig": {
+                        "responseMimeType": "application/json"
+                    }
+                }
+                response = requests.post(url, headers=headers, json=data, timeout=30)
+                if response.status_code != 200:
+                    raise Exception(f"Gemini API returned status code {response.status_code}: {response.text}")
+                text = response.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+            else:
+                logger.info("Querying Groq API for script content...")
+                headers = {
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                }
+                data = {
+                    "messages": [
+                        {"role": "user", "content": prompt + "\n\nReturn ONLY the JSON structure. Do not include markdown code block syntax (like ```json ... ```)."}
+                    ],
+                    "model": "llama-3.3-70b-versatile",
+                    "temperature": 0.85,
+                    "response_format": {"type": "json_object"}
+                }
+                response = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=data, timeout=30)
+                if response.status_code != 200:
+                    raise Exception(f"Groq API returned status code {response.status_code}: {response.text}")
+                text = response.json()["choices"][0]["message"]["content"].strip()
+
+            if "```" in text:
+                text = re.sub(r"```(?:json)?", "", text).replace("```", "").strip()
+            return json.loads(text)
+        except Exception as e:
+            logger.error(f"API call failed: {e}")
+            raise e
+
+    def score_hook_virality(self, slides: list[dict], caption: str) -> dict:
+        """
+        Evaluate and score the virality and scroll-stopping power of generated content.
+        Returns a dictionary with the score (0-100), passing status, and improvement feedback.
+        """
+        score = 80
+        feedback = []
+        
+        # 1. Slide 1 Hook Check
+        hook_slide = next((s for s in slides if s.get("type") == "hook" or s.get("slide_num") == 1), None)
+        if hook_slide:
+            headline = hook_slide.get("headline", "")
+            subheadline = hook_slide.get("subheadline", "")
+            
+            # Headline Length Optimization (Ideal: 3 to 8 words)
+            words = headline.split()
+            if len(words) < 3 or len(words) > 8:
+                score -= 10
+                feedback.append(f"Headline has {len(words)} words. Keep it within high-impact 3-8 word scroll-stoppers.")
+                
+            # Power Words Check
+            power_words = ["secret", "mystery", "shocking", "cracked", "banned", "unstoppable", "crushes", "revealed", "insane", "rules", "exposed", "warning", "critical", "insider", "hacks", "broke", "bypassed"]
+            has_power = any(w in headline.lower() or w in subheadline.lower() for w in power_words)
+            if not has_power:
+                score -= 15
+                feedback.append("Missing scroll-stopping psychological power words (e.g. secret, revealed, banned).")
+            else:
+                score += 5
+                
+            # Emojis in hook check
+            if not hook_slide.get("emoji") and not any(char in headline for char in ["🚨", "🔥", "⚠️", "🧠", "💡"]):
+                score -= 5
+                feedback.append("Missing high-visibility engagement emojis on slide 1.")
+        else:
+            score -= 20
+            feedback.append("Slide 1 / Hook slide structure is invalid.")
+
+        # 2. Caption Preview Check
+        first_sentence = caption.split(".")[0] if caption else ""
+        if len(first_sentence) > 125:
+            score -= 10
+            feedback.append("First sentence of the caption exceeds 125 characters (Instagram's text-wrap line limit).")
+
+        score = max(0, min(100, score))
+        return {
+            "score": score,
+            "passed": score >= 75,
+            "feedback": feedback
+        }
+
+    def _query_and_validate(self, prompt: str) -> dict:
+        """Query the model and perform self-healing hook optimization if virality score is low."""
+        content = self._query_grok(prompt)
+        try:
+            evaluation = self.score_hook_virality(content.get("slides", []), content.get("caption", ""))
+            logger.info(f"Hook Virality Scorer Result: Score={evaluation['score']}/100, Passed={evaluation['passed']}")
+            
+            if not evaluation["passed"]:
+                logger.info("⚠️ Hook failed virality criteria. Triggering self-healing optimization query...")
+                
+                slides_list = content.get('slides', [])
+                orig_headline = slides_list[0].get('headline', '') if len(slides_list) > 0 else ''
+                orig_subheadline = slides_list[0].get('subheadline', '') if len(slides_list) > 0 else ''
+                feedback_str = "".join('- ' + f + '\n' for f in evaluation['feedback'])
+                
+                refinement_prompt = f"""You are a scroll-stopping virality growth engineer. The current hook was rejected for scoring low:
+HEADLINE: {orig_headline}
+SUBHEADLINE: {orig_subheadline}
+
+Feedback/Issues to resolve:
+{feedback_str}
+
+Rewrite and return ONLY a refined and optimized Slide 1 Hook in this EXACT JSON structure:
+{{
+  "headline": "A 3-8 word scroll-stopping ALL CAPS high-CTR curiosity headline",
+  "subheadline": "A 1-sentence psychological curiosity-gap opener (max 12 words)",
+  "emoji": "🔥"
+}}"""
+                try:
+                    refinement = self._query_grok(refinement_prompt)
+                    if "headline" in refinement and "subheadline" in refinement:
+                        content["slides"][0]["headline"] = refinement["headline"]
+                        content["slides"][0]["subheadline"] = refinement["subheadline"]
+                        content["slides"][0]["emoji"] = refinement.get("emoji", "🔥")
+                        logger.info(f"✅ Self-healed Hook: \"{refinement['headline']}\"")
+                except Exception as refine_err:
+                    logger.warning(f"Refinement failed: {refine_err}")
+        except Exception as eval_err:
+            logger.warning(f"Virality evaluation bypassed due to parsing issue: {eval_err}")
+        return content
+
+    def generate_carousel_content(self, story: dict, aggressive_hooks: bool = False, winning_hooks: list = None, losing_hooks: list = None) -> dict:
         """
         Generate all slide content + caption for a story.
         Returns a dict with 'slides' (list of slide dicts) and 'caption'.
@@ -50,6 +182,16 @@ class ContentGenerator:
 
         hook_instruction = "CRITICAL: The current account views are below target. Write an EXTREMELY AGGRESSIVE, scroll-stopping, psychological curiosity hook for Slide 1 that practically FORCES people to swipe. Make it high-impact and click-worthy." if aggressive_hooks else ""
 
+        learn_instruction = ""
+        if winning_hooks:
+            learn_instruction += f"\n- STUDY THESE WINNING PATTERNS (highest performing historical hooks). Emulate these styles:\n"
+            for w in winning_hooks:
+                learn_instruction += f"  * {w}\n"
+        if losing_hooks:
+            learn_instruction += f"\n- AVOID THESE LOSING PATTERNS (lowest performing historical hooks). DO NOT use similar angles or phrasing:\n"
+            for l in losing_hooks:
+                learn_instruction += f"  * {l}\n"
+
         prompt = f"""You are a viral Instagram content creator specializing in AI news. Your posts get 50K+ likes because they are:
 - Clear and easy to understand (no jargon)
 - Visually structured for mobile screens
@@ -57,6 +199,7 @@ class ContentGenerator:
 - Data-driven with impressive facts
 - Written like a smart friend explaining news, not a robot
 
+{learn_instruction}
 {hook_instruction}
 
 Create a 5-slide Instagram carousel for this AI news story:
@@ -157,49 +300,11 @@ Return as valid JSON with this EXACT structure:
 
 Return ONLY valid JSON."""
 
-        import time
-        MODELS_TO_TRY = [
-            "gemini-2.0-flash",
-            "gemini-2.5-flash-lite",
-            "gemini-flash-latest",
-            "gemini-2.0-flash-lite",
-        ]
-
-        for model_name in MODELS_TO_TRY:
-            for attempt in range(2):
-                try:
-                    response = self._client.models.generate_content(
-                        model=model_name,
-                        contents=prompt,
-                        config=genai_types.GenerateContentConfig(
-                            temperature=0.8,
-                            max_output_tokens=3000,
-                        ),
-                    )
-                    text = response.text.strip()
-                    if "```" in text:
-                        text = re.sub(r"```(?:json)?", "", text).replace("```", "").strip()
-                    content = json.loads(text)
-                    logger.info(f"Generated {len(content.get('slides', []))} slides via {model_name}")
-                    return content
-                except Exception as e:
-                    err_str = str(e)
-                    if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower():
-                        wait = 10 * (2 ** attempt)
-                        logger.warning(f"{model_name} rate limited, waiting {wait}s...")
-                        time.sleep(wait)
-                    elif "404" in err_str or "NOT_FOUND" in err_str:
-                        logger.warning(f"Model {model_name} not available, trying next...")
-                        break
-                    else:
-                        logger.error(f"Content gen {model_name} failed: {e}")
-                        break
-            else:
-                logger.warning(f"Model {model_name} exhausted, trying next model...")
-                continue
-
-        logger.warning("All Gemini models exhausted for content gen. Using fallback.")
-        return self._fallback_content(story)
+        try:
+            return self._query_and_validate(prompt)
+        except Exception as e:
+            logger.warning("Grok generation failed for AI content. Using fallback.")
+            return self._fallback_content(story)
 
 
     def _fallback_content(self, story: dict) -> dict:
@@ -360,37 +465,11 @@ Return ONLY valid JSON."""
         
         Return ONLY valid JSON."""
 
-        import time
-        MODELS_TO_TRY = ["gemini-2.0-flash", "gemini-2.5-flash-lite", "gemini-flash-latest"]
-
-        for model_name in MODELS_TO_TRY:
-            for attempt in range(2):
-                try:
-                    response = self._client.models.generate_content(
-                        model=model_name,
-                        contents=prompt,
-                        config=genai_types.GenerateContentConfig(
-                            temperature=0.85,
-                            max_output_tokens=3000,
-                        ),
-                    )
-                    text = response.text.strip()
-                    if "```" in text:
-                        text = re.sub(r"```(?:json)?", "", text).replace("```", "").strip()
-                    content = json.loads(text)
-                    logger.info(f"Generated Business content via {model_name}")
-                    return content
-                except Exception as e:
-                    err_str = str(e)
-                    if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
-                        time.sleep(10 * (2 ** attempt))
-                    else:
-                        break
-            else:
-                continue
-
-        logger.warning("Gemini models failed for business content. Using fallback.")
-        return self._fallback_business_content()
+        try:
+            return self._query_and_validate(prompt)
+        except Exception as e:
+            logger.warning("Grok generation failed for business content. Using fallback.")
+            return self._fallback_business_content()
 
     def _fallback_business_content(self) -> dict:
         return {
@@ -546,37 +625,11 @@ Return ONLY valid JSON."""
         
         Return ONLY valid JSON."""
 
-        import time
-        MODELS_TO_TRY = ["gemini-2.0-flash", "gemini-2.5-flash-lite", "gemini-flash-latest"]
-
-        for model_name in MODELS_TO_TRY:
-            for attempt in range(2):
-                try:
-                    response = self._client.models.generate_content(
-                        model=model_name,
-                        contents=prompt,
-                        config=genai_types.GenerateContentConfig(
-                            temperature=0.85,
-                            max_output_tokens=3000,
-                        ),
-                    )
-                    text = response.text.strip()
-                    if "```" in text:
-                        text = re.sub(r"```(?:json)?", "", text).replace("```", "").strip()
-                    content = json.loads(text)
-                    logger.info(f"Generated Motivation content via {model_name}")
-                    return content
-                except Exception as e:
-                    err_str = str(e)
-                    if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
-                        time.sleep(10 * (2 ** attempt))
-                    else:
-                        break
-            else:
-                continue
-
-        logger.warning("Gemini models failed for motivation content. Using fallback.")
-        return self._fallback_motivation_content()
+        try:
+            return self._query_and_validate(prompt)
+        except Exception as e:
+            logger.warning("Grok generation failed for motivation content. Using fallback.")
+            return self._fallback_motivation_content()
 
     def _fallback_motivation_content(self) -> dict:
         return {
