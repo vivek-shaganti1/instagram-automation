@@ -15,24 +15,31 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [backendError, setBackendError] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState("");
+  
+  const getApiUrl = () => process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
   const fetchStats = async () => {
     try {
-      const res = await fetch("http://localhost:8000/api/stats");
+      setBackendError(null);
+      const res = await fetch(`${getApiUrl()}/api/stats`);
+      if (!res.ok) throw new Error(`Backend Error /api/stats: ${res.statusText}`);
       const data = await res.json();
       setStats(data);
       
-      const insightsRes = await fetch("http://localhost:8000/api/strategist-insights");
+      const insightsRes = await fetch(`${getApiUrl()}/api/strategist-insights`);
+      if (!insightsRes.ok) throw new Error(`Backend Error /api/strategist-insights: ${insightsRes.statusText}`);
       const insightsData = await insightsRes.json();
       setInsights(insightsData);
 
-      const healthRes = await fetch("http://localhost:8000/api/health");
+      const healthRes = await fetch(`${getApiUrl()}/api/health`);
+      if (!healthRes.ok) throw new Error(`Backend Error /api/health: ${healthRes.statusText}`);
       const healthData = await healthRes.json();
       setHealth(healthData);
 
       try {
-        const stressRes = await fetch("http://localhost:8000/api/stress-results");
+        const stressRes = await fetch(`${getApiUrl()}/api/stress-results`);
         if (stressRes.ok) {
           const stressData = await stressRes.json();
           setStressResults(stressData);
@@ -42,7 +49,7 @@ export default function DashboardPage() {
       }
 
       try {
-        const deployRes = await fetch("http://localhost:8000/api/deployment-status");
+        const deployRes = await fetch(`${getApiUrl()}/api/deployment-status`);
         if (deployRes.ok) {
           const deployData = await deployRes.json();
           setDeploymentStatus(deployData);
@@ -50,8 +57,9 @@ export default function DashboardPage() {
       } catch (deployErr) {
         console.warn("Failed to fetch deployment status");
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error("Failed to load statistics:", e);
+      setBackendError(e.message || "Failed to connect to backend server. Is it running?");
     } finally {
       setLoading(false);
     }
@@ -61,7 +69,7 @@ export default function DashboardPage() {
     setActionLoading("backup");
     setMessage("Initiating automated production database and asset backup...");
     try {
-      const res = await fetch("http://localhost:8000/api/run-backup", { method: "POST" });
+      const res = await fetch(`${getApiUrl()}/api/run-backup`, { method: "POST" });
       const data = await res.json();
       if (data.success) {
         setMessage("Database and assets backed up successfully!");
@@ -81,7 +89,7 @@ export default function DashboardPage() {
     setActionLoading("stress");
     setMessage("Running autonomous stress testing & validation audit...");
     try {
-      const res = await fetch("http://localhost:8000/api/run-stress-test", { method: "POST" });
+      const res = await fetch(`${getApiUrl()}/api/run-stress-test`, { method: "POST" });
       const data = await res.json();
       if (data.success) {
         setMessage("Stress test completed successfully!");
@@ -131,7 +139,7 @@ export default function DashboardPage() {
     setActionLoading(category);
     setMessage(`Queued ${category.toUpperCase()} Reel job...`);
     try {
-      const res = await fetch("http://localhost:8000/api/post-now", {
+      const res = await fetch(`${getApiUrl()}/api/post-now`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ category }),
@@ -155,7 +163,7 @@ export default function DashboardPage() {
     setActionLoading("sync");
     setMessage("Syncing metrics with Instagram Graph API...");
     try {
-      const res = await fetch("http://localhost:8000/api/sync-stats", { method: "POST" });
+      const res = await fetch(`${getApiUrl()}/api/sync-stats`, { method: "POST" });
       const data = await res.json();
       if (data.success) {
         setMessage("Instagram stats synced successfully!");
@@ -201,6 +209,14 @@ export default function DashboardPage() {
       {message && (
         <div className="fixed bottom-6 right-6 bg-slate-900 border border-violet-500/30 text-slate-200 px-6 py-4 rounded-xl shadow-2xl z-50 transition max-w-sm">
           {message}
+        </div>
+      )}
+
+      {backendError && (
+        <div className="mb-8 p-4 bg-red-950/50 border border-red-500/50 rounded-xl flex flex-col items-center justify-center text-center">
+          <ShieldAlert className="w-8 h-8 text-red-500 mb-2" />
+          <h3 className="text-red-400 font-bold mb-1">Backend Connection Failed</h3>
+          <p className="text-red-300 text-sm">{backendError}</p>
         </div>
       )}
 

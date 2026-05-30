@@ -63,7 +63,11 @@ function checkRedisReachable(host: string, port: number, timeoutMs = 1000): Prom
   });
 }
 
-app.use(cors());
+app.use(cors({
+  origin: "http://localhost:3000",
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  credentials: true
+}));
 app.use(express.json());
 
 // Expose static output files (mp4 video files)
