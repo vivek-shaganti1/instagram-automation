@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 import { RotateCw, TrendingUp } from "lucide-react";
+import { getApiUrl } from "@/utils/api";
 
 export default function AnalyticsPage() {
   const router = useRouter();
@@ -17,7 +18,7 @@ export default function AnalyticsPage() {
       return;
     }
 
-    fetch("http://localhost:8000/api/stats")
+    fetch(getApiUrl("/api/stats"))
       .then((res) => res.json())
       .then((data) => {
         setStats(data);
@@ -42,22 +43,13 @@ export default function AnalyticsPage() {
   const dailyStats = stats?.daily_stats || {};
   const sortedDates = Object.keys(dailyStats).sort();
 
-  // Fallback mock graph data if database has no entries yet
   const chartData = sortedDates.length > 0 
     ? sortedDates.map((date) => ({
         name: date.split("-").slice(1).join("/"), // "MM/DD"
         "Actual Views": dailyStats[date].total_views,
         "Target Views": dailyStats[date].target_views,
       }))
-    : Array.from({ length: 7 }).map((_, i) => {
-        const d = new Date("2026-05-28");
-        d.setDate(d.getDate() + i);
-        return {
-          name: `${d.getMonth() + 1}/${d.getDate()}`,
-          "Actual Views": i === 0 ? 88 : i === 1 ? 120 : i === 2 ? 140 : 0,
-          "Target Views": Math.floor(100 * Math.pow(1.15, i)),
-        };
-      });
+    : [];
 
   return (
     <div className="max-w-5xl mx-auto py-12 px-6">

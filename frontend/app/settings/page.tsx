@@ -1,16 +1,21 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Save, Shield, Key, Sliders, CheckCircle, RotateCw } from "lucide-react";
+import { getApiUrl } from "../../utils/api";
 
 export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const router = useRouter();
   
   const [credentials, setCredentials] = useState({
     igUsername: "",
     igPassword: "",
+    igAccessToken: "",
+    igAccountId: "",
     igHandle: "",
     geminiKey: "",
     elevenLabsKey: "",
@@ -21,7 +26,12 @@ export default function SettingsPage() {
 
   // Fetch settings from database on mount
   useEffect(() => {
-    fetch("http://localhost:8000/api/settings")
+    const cachedUser = localStorage.getItem("user");
+    if (!cachedUser) {
+      router.push("/login");
+      return;
+    }
+    fetch(getApiUrl("/api/settings"))
       .then((res) => {
         if (!res.ok) throw new Error("Failed to load settings");
         return res.json();
@@ -30,6 +40,8 @@ export default function SettingsPage() {
         setCredentials({
           igUsername: data.igUsername || "",
           igPassword: data.igPassword || "",
+          igAccessToken: data.igAccessToken || "",
+          igAccountId: data.igAccountId || "",
           igHandle: data.igHandle || "",
           geminiKey: data.geminiKey || "",
           elevenLabsKey: data.elevenLabsKey || "",
@@ -52,7 +64,7 @@ export default function SettingsPage() {
     setErrorMessage(null);
 
     try {
-      const res = await fetch("http://localhost:8000/api/settings", {
+      const res = await fetch(getApiUrl("/api/settings"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(credentials),
@@ -103,13 +115,13 @@ export default function SettingsPage() {
           </div>
           <div className="grid sm:grid-cols-2 gap-5">
             <div>
-              <label className="text-xs font-semibold text-slate-300 block mb-2">Google Gemini API Key</label>
+              <label className="text-xs font-semibold text-slate-300 block mb-2">Groq / Gemini API Key</label>
               <input 
                 type="password" 
                 value={credentials.geminiKey}
                 onChange={(e) => setCredentials({ ...credentials, geminiKey: e.target.value })}
                 className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-slate-300 text-sm focus:border-violet-500/50 outline-none"
-                placeholder="Paste Gemini API Key"
+                placeholder="Paste API Key (gsk_... or AIza...)"
               />
             </div>
             <div>
@@ -139,27 +151,27 @@ export default function SettingsPage() {
         <div className="glass-panel p-8 rounded-2xl">
           <div className="flex items-center gap-3 mb-6">
             <Shield className="w-5 h-5 text-cyan-400" />
-            <h3 className="font-semibold text-white text-lg">Instagram Credentials</h3>
+            <h3 className="font-semibold text-white text-lg">Meta Graph API Credentials</h3>
           </div>
           <div className="grid sm:grid-cols-2 gap-5">
-            <div>
-              <label className="text-xs font-semibold text-slate-300 block mb-2">Username</label>
+            <div className="sm:col-span-2">
+              <label className="text-xs font-semibold text-slate-300 block mb-2">Instagram Graph Access Token</label>
               <input 
-                type="text" 
-                value={credentials.igUsername}
-                onChange={(e) => setCredentials({ ...credentials, igUsername: e.target.value })}
+                type="password" 
+                value={credentials.igAccessToken}
+                onChange={(e) => setCredentials({ ...credentials, igAccessToken: e.target.value })}
                 className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-slate-300 text-sm focus:border-cyan-500/50 outline-none"
-                placeholder="e.g. ai_signal_09"
+                placeholder="EAA..."
               />
             </div>
             <div>
-              <label className="text-xs font-semibold text-slate-300 block mb-2">Password</label>
+              <label className="text-xs font-semibold text-slate-300 block mb-2">Instagram Account ID</label>
               <input 
-                type="password" 
-                value={credentials.igPassword}
-                onChange={(e) => setCredentials({ ...credentials, igPassword: e.target.value })}
+                type="text" 
+                value={credentials.igAccountId}
+                onChange={(e) => setCredentials({ ...credentials, igAccountId: e.target.value })}
                 className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-slate-300 text-sm focus:border-cyan-500/50 outline-none"
-                placeholder="Enter Instagram password"
+                placeholder="178414..."
               />
             </div>
             <div className="sm:col-span-2">

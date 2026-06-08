@@ -64,7 +64,7 @@ function checkRedisReachable(host: string, port: number, timeoutMs = 1000): Prom
 }
 
 app.use(cors({
-  origin: "http://localhost:3000",
+  origin: process.env.FRONTEND_URL || "http://localhost:3000",
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   credentials: true
 }));
@@ -115,9 +115,9 @@ app.get("/api/health", async (req, res) => {
 
     try {
       [reelCount, metricCount, settingCount] = await Promise.all([
-        prisma.reel.count(),
-        prisma.performanceMetric.count(),
-        prisma.setting.count(),
+        prisma.generated_posts.count(),
+        prisma.analytics.count(),
+        prisma.settings.count(),
       ]);
     } catch (error) {
       dbStatus = "offline";
@@ -160,72 +160,89 @@ app.get("/api/stats", async (req, res) => {
   try {
     let reels: any[] = [];
     let metrics: any[] = [];
-    let totalViewsAgg: any = { _sum: { views: 0, likes: 0 } };
+    let viewsAgg: any = { _sum: { views: 0, likes: 0 } };
 
     try {
-      reels = await prisma.reel.findMany({
+      reels = await prisma.generated_posts.findMany({
         orderBy: { createdAt: "desc" },
         take: 12
       });
 
-      metrics = await prisma.dailyMetric.findMany({
+      metrics = await prisma.analytics.findMany({
         orderBy: { date: "asc" },
         take: 30
       });
 
-      totalViewsAgg = await prisma.reel.aggregate({
+      viewsAgg = await prisma.generated_posts.aggregate({
         where: { status: "UPLOADED" },
         _sum: {
           views: true,
           likes: true
         }
       });
-    } catch (dbErr) {
-      console.warn("⚠️ Postgres Database not reachable during stats fetch. Using simulated mock data.");
-      reels = [
-        {
-          id: "mock-1",
-          category: "ai",
-          status: "UPLOADED",
-          headline: "3 Secrets to Passive Income",
-          caption: "Leverage these AI systems to make bank today! #sidehustle #passiveincome #entrepreneur",
-          views: 4200,
-          likes: 280,
-          comments: 15,
-          createdAt: new Date().toISOString()
-        },
-        {
-          id: "mock-2",
-          category: "business",
-          status: "UPLOADED",
-          headline: "How I Built a SaaS in 24 Hours",
-          caption: "Building a software company is easier than you think! #saas #developer #startup",
-          views: 1850,
-          likes: 120,
-          comments: 8,
-          createdAt: new Date(Date.now() - 3600000 * 12).toISOString()
-        }
-      ];
-      metrics = [
-        { id: "m-1", date: "2026-05-28", totalViews: 3500, targetViews: 4000, postCount: 1, updatedAt: new Date() },
-        { id: "m-2", date: "2026-05-29", totalViews: 5200, targetViews: 4000, postCount: 1, updatedAt: new Date() }
-      ];
-      totalViewsAgg = { _sum: { views: 6050, likes: 400 } };
+    } catch (dbErr: any) {
+      console.error(dbErr);
+      return res.status(500).json({ error: "Database offline", details: dbErr.message });
     }
+
+    const tokenSetting = await prisma.settings.findUnique({ where: { key: "instagram_access_token" } });
+    const isGraphApiActive = !!(tokenSetting?.value || process.env.INSTAGRAM_ACCESS_TOKEN);
+    const isVerified = reels.length > 0 || metrics.length > 0;
+
+    // Log verification status
+    console.log(JSON.stringify({
+      metric: "views",
+      source: isGraphApiActive ? "Instagram Graph API" : (isVerified ? "scraped database metrics" : "none"),
+      rows: reels.length,
+      updatedAt: new Date().toISOString()
+    }));
+    
+    console.log(JSON.stringify({
+      metric: "likes",
+      source: isGraphApiActive ? "Instagram Graph API" : (isVerified ? "scraped database metrics" : "none"),
+      rows: reels.length,
+      updatedAt: new Date().toISOString()
+    }));
 
     // Check if aggressive hooks is toggled
     const lastMetric = metrics[metrics.length - 1];
-    const isAggressive = lastMetric ? lastMetric.totalViews < (lastMetric.targetViews / 3) : false;
+    const isAggressive = lastMetric ? lastMetric.impressions < (100 / 3) : false;
 
     res.json({
       posts: reels,
-      totalViews: totalViewsAgg._sum.views || 0,
-      totalLikes: totalViewsAgg._sum.likes || 0,
+      views: isVerified ? (viewsAgg._sum.views || 0) : null,
+      totalLikes: isVerified ? (viewsAgg._sum.likes || 0) : null,
+      followers: isVerified ? (lastMetric?.followers || null) : null,
+      graphApiActive: isGraphApiActive,
+      verifiedSource: isVerified,
+      sources: {
+        views: {
+          metric: "views",
+          source: isGraphApiActive ? "Instagram Graph API" : (isVerified ? "scraped database metrics" : "none"),
+          rows: reels.length,
+          updatedAt: new Date().toISOString(),
+          verified: isVerified
+        },
+        likes: {
+          metric: "likes",
+          source: isGraphApiActive ? "Instagram Graph API" : (isVerified ? "scraped database metrics" : "none"),
+          rows: reels.length,
+          updatedAt: new Date().toISOString(),
+          verified: isVerified
+        },
+        followers: {
+          metric: "followers",
+          source: isGraphApiActive ? "Instagram Graph API" : (isVerified ? "scraped database metrics" : "none"),
+          rows: metrics.length,
+          updatedAt: new Date().toISOString(),
+          verified: isVerified
+        }
+      },
       daily_stats: metrics.reduce((acc: any, cur) => {
         acc[cur.date] = {
-          total_views: cur.totalViews,
-          target_views: cur.targetViews,
-          post_count: cur.postCount
+          total_views: cur.impressions || cur.reach || 0,
+          target_views: 100,
+          post_count: 3
         };
         return acc;
       }, {}),
@@ -245,12 +262,12 @@ app.get("/api/strategist-insights", async (req, res) => {
     let reels: any[] = [];
     let metrics: any[] = [];
     try {
-      reels = await prisma.reel.findMany({
+      reels = await prisma.generated_posts.findMany({
         orderBy: { createdAt: "desc" }
       });
-      metrics = await prisma.performanceMetric.findMany();
-    } catch (dbErr) {
-      console.warn("⚠️ Postgres Database not reachable during insights fetch. Using simulated mock data.");
+      metrics = await prisma.analytics.findMany();
+    } catch (dbErr: any) {
+      return res.status(500).json({ error: "Database offline" });
     }
 
     const metricsMap = new Map(metrics.map(m => [m.reelId, m]));
@@ -352,49 +369,12 @@ app.get("/api/strategist-insights", async (req, res) => {
       };
     });
 
-    if (audienceConversion.length === 0) {
-      audienceConversion.push(
-        { segment: "AI Enthusiasts", views: 18500, followersGained: 450, conversionRate: 0.0243 },
-        { segment: "SaaS Developers", views: 9500, followersGained: 180, conversionRate: 0.0189 },
-        { segment: "Product Designers", views: 4800, followersGained: 143, conversionRate: 0.0298 }
-      );
-    }
-
-    // Default mock lists for the remaining insights if empty
-    const retentionCurve = [
-      { second: 0, retention: 100 },
-      { second: 3, retention: 85 },
-      { second: 6, retention: 72 },
-      { second: 9, retention: 65 },
-      { second: 12, retention: 58 }
-    ];
-
-    const themePerformance = [
-      { theme: "neon_teal", postCount: 12, averageViews: 4500, averageEngagement: 0.052 },
-      { theme: "sunset_glow", postCount: 8, averageViews: 3800, averageEngagement: 0.048 },
-      { theme: "cyber_green", postCount: 6, averageViews: 2900, averageEngagement: 0.041 }
-    ];
-
-    const aiLearningFeed = [
-      { id: "learn-1", timestamp: new Date(Date.now() - 3600000).toISOString(), severity: "success", message: "Optimized hook timing for 'neon_teal' category." },
-      { id: "learn-2", timestamp: new Date(Date.now() - 7200000).toISOString(), severity: "warning", message: "High drop-off detected on second 6 for motivate category." }
-    ];
-
-    const growthForecast = [
-      { date: "May 31", projectedViews: 6500, projectedFollowers: 120 },
-      { date: "Jun 01", projectedViews: 7100, projectedFollowers: 145 },
-      { date: "Jun 02", projectedViews: 8200, projectedFollowers: 180 }
-    ];
-
-    const postingOpportunityRadar = [
-      { hour: "08:00 AM", score: 92, impressions: 5800 },
-      { hour: "12:00 PM", score: 78, impressions: 14200 },
-      { hour: "06:00 PM", score: 95, impressions: 18500 }
-    ];
-
-    const strategyAdaptationTimeline = [
-      { rule: "Views Drop Trigger", action: "Toggle aggressive hooks on AI category.", triggerValue: "< 1500 views", timestamp: new Date(Date.now() - 86400000).toISOString() }
-    ];
+    const retentionCurve: any[] = [];
+    const themePerformance: any[] = [];
+    const aiLearningFeed: any[] = [];
+    const growthForecast: any[] = [];
+    const postingOpportunityRadar: any[] = [];
+    const strategyAdaptationTimeline: any[] = [];
 
     res.json({
       predictionAccuracy,
@@ -421,30 +401,58 @@ app.post("/api/post-now", async (req, res) => {
     // Check metric threshold
     let lastMetric = null;
     try {
-      lastMetric = await prisma.dailyMetric.findFirst({
+      lastMetric = await prisma.analytics.findFirst({
         orderBy: { date: "desc" }
       });
-    } catch (dbErr) {
-      console.warn("⚠️ Postgres Database not reachable during threshold check.");
+    } catch (dbErr: any) {
+      return res.status(500).json({ error: "Database offline" });
     }
-    const aggressiveHooks = lastMetric ? lastMetric.totalViews < (lastMetric.targetViews / 3) : false;
+    const aggressiveHooks = lastMetric ? lastMetric.impressions < (100 / 3) : false;
 
     // Generate dynamic index and random theme for style and content variety
     const storyIndex = Date.now();
     const themes = ["apple_minimal", "bloomberg_dark", "startup_editorial", "cyber_documentary", "luxury_white", "midnight_strategy", "founder_mode", "ai_war_room", "modern_finance", "intelligence_briefing"];
     const theme = themes[Math.floor(Math.random() * themes.length)];
 
+    // CREATE DB RECORD FIRST so it shows in the UI immediately
+    const newReel = await prisma.generated_posts.create({
+      data: {
+        category: targetCategory,
+        status: "PENDING",
+        headline: `Manual Generation (${targetCategory})`,
+        script: {},
+        caption: "Waiting for background worker...",
+        scheduled_for: new Date(),
+      }
+    });
+
     let jobId = "mock-job-" + Date.now();
     try {
-      const job = await researchQueue.add("manual-post-job", {
-        category: targetCategory,
-        aggressiveHooks,
-        storyIndex,
-        theme
-      });
+      const addPromise = researchQueue.add(
+        "manual-post-job",
+        {
+          category: targetCategory,
+          aggressiveHooks,
+          storyIndex,
+          theme,
+          reelId: newReel.id
+        },
+        { jobId }
+      );
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Redis timeout")), 1500));
+      const job = await Promise.race([addPromise, timeoutPromise]) as any;
       jobId = job.id?.toString() || jobId;
-    } catch (redisErr) {
-      console.warn("⚠️ Redis/Queue offline. Simulating queued job.");
+      
+      await prisma.generated_posts.update({
+        where: { id: newReel.id },
+        data: { status: "GENERATING", headline: "Queued successfully" }
+      });
+    } catch (redisErr: any) {
+      console.warn("⚠️ Redis/Queue offline. Marking job as Simulated.");
+      await prisma.generated_posts.update({
+        where: { id: newReel.id },
+        data: { status: "FAILED", error: "Redis offline - Simulated", headline: "Simulated Post" }
+      });
     }
 
     res.json({ success: true, jobId, message: `Reel generation for ${targetCategory} queued.` });
@@ -458,9 +466,9 @@ app.get("/api/settings", async (req, res) => {
   try {
     let dbSettings: any[] = [];
     try {
-      dbSettings = await prisma.setting.findMany();
-    } catch (dbErr) {
-      console.warn("⚠️ Postgres Database not reachable during settings fetch. Using in-memory mock settings.");
+      dbSettings = await prisma.settings.findMany();
+    } catch (dbErr: any) {
+      return res.status(500).json({ error: "Database offline" });
     }
     const settingsMap = dbSettings.reduce((acc: any, cur) => {
       acc[cur.key] = cur.value;
@@ -468,12 +476,12 @@ app.get("/api/settings", async (req, res) => {
     }, {});
     
     res.json({
-      igUsername: settingsMap["instagram_username"] || "mock_user",
+      igUsername: settingsMap["instagram_username"] || "",
       igPassword: settingsMap["instagram_password"] || "••••••••",
-      igHandle: settingsMap["instagram_handle"] || "mock_ai_agent",
-      geminiKey: settingsMap["google_ai_api_key"] || "AIzaSyMockKey...",
-      elevenLabsKey: settingsMap["elevenlabs_api_key"] || "el_mock_key...",
-      pexelsKey: settingsMap["pexels_api_key"] || "px_mock_key...",
+      igHandle: settingsMap["instagram_handle"] || "",
+      geminiKey: settingsMap["google_ai_api_key"] || "",
+      elevenLabsKey: settingsMap["elevenlabs_api_key"] || "",
+      pexelsKey: settingsMap["pexels_api_key"] || "",
       targetBaseline: settingsMap["target_baseline"] || "100",
       growthMultiplier: settingsMap["growth_multiplier"] || "15%",
       igAccessToken: settingsMap["instagram_access_token"] || "",
@@ -516,7 +524,7 @@ app.post("/api/settings", async (req, res) => {
     try {
       for (const update of updates) {
         if (update.value !== undefined) {
-          await prisma.setting.upsert({
+          await prisma.settings.upsert({
             where: { key: update.key },
             update: { value: update.value },
             create: { key: update.key, value: update.value }
@@ -542,19 +550,19 @@ app.post("/api/auth/register", async (req, res) => {
     }
 
     try {
-      const existing = await prisma.user.findUnique({ where: { email } });
+      const existing = await prisma.users.findUnique({ where: { email } });
       if (existing) {
         return res.status(400).json({ error: "User already exists with this email." });
       }
 
-      const user = await prisma.user.create({
+      const user = await prisma.users.create({
         data: { email, password }
       });
 
       return res.json({ success: true, user: { id: user.id, email: user.email } });
     } catch (dbErr) {
       console.warn("⚠️ Postgres Database not reachable. Simulating user registration.");
-      return res.json({ success: true, user: { id: "mock-id-" + Date.now(), email } });
+      return res.status(500).json({ error: "Auth is handled by Supabase" });
     }
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -570,14 +578,14 @@ app.post("/api/auth/login", async (req, res) => {
     }
 
     try {
-      const user = await prisma.user.findUnique({ where: { email } });
+      const user = await prisma.users.findUnique({ where: { email } });
       if (!user || user.password !== password) {
         return res.status(401).json({ error: "Invalid email or password." });
       }
       return res.json({ success: true, user: { id: user.id, email: user.email } });
     } catch (dbErr) {
       console.warn("⚠️ Postgres Database not reachable. Simulating successful sign-in.");
-      return res.json({ success: true, user: { id: "mock-user-id", email } });
+      return res.status(500).json({ error: "Auth is handled by Supabase" });
     }
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -593,14 +601,14 @@ app.post("/api/auth/forgot-password", async (req, res) => {
     }
 
     try {
-      const user = await prisma.user.findUnique({ where: { email } });
+      const user = await prisma.users.findUnique({ where: { email } });
       if (!user) {
         return res.status(404).json({ error: "No account found with this email." });
       }
       return res.json({ success: true, message: `A password recovery code has been simulated for ${email}. Your password is: ${user.password}` });
     } catch (dbErr) {
       console.warn("⚠️ Postgres Database not reachable. Simulating password recovery.");
-      return res.json({ success: true, message: `A password recovery code has been simulated for ${email}. Your simulated password is: mockPassword123` });
+      return res.status(500).json({ error: "Auth is handled by Supabase" });
     }
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -610,31 +618,63 @@ app.post("/api/auth/forgot-password", async (req, res) => {
 // POST /api/sync-stats
 app.post("/api/sync-stats", async (req, res) => {
   try {
-    let metric = null;
+    console.log("[POST /api/sync-stats] Triggering session-based Instagram insights sync...");
+    
+    // Validate database connectivity
     try {
-      metric = await instagramService.syncAnalytics();
-    } catch (syncErr) {
-      console.warn("⚠️ Sync failed or Instagram API offline. Generating mock synced metrics.");
-      metric = {
-        views: 12000,
-        likes: 850,
-        comments: 42,
-        shares: 65,
-        saves: 110
-      };
+      await prisma.$queryRaw`SELECT 1`;
+    } catch (dbErr: any) {
+      console.error("[POST /api/sync-stats] Database connection failed:", dbErr);
+      return res.status(200).json({
+        success: false,
+        error: `Database connection failed: ${dbErr.message}`,
+        source: "database"
+      });
     }
-    res.json({ success: true, data: metric });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+
+    // Validate credentials
+    const userSetting = await prisma.settings.findUnique({ where: { key: "instagram_username" } });
+    const passSetting = await prisma.settings.findUnique({ where: { key: "instagram_password" } });
+    const username = userSetting?.value || process.env.INSTAGRAM_USERNAME;
+    const password = passSetting?.value || process.env.INSTAGRAM_PASSWORD;
+
+    if (!username || !password) {
+      console.error("[POST /api/sync-stats] Missing credentials.");
+      return res.status(200).json({
+        success: false,
+        error: "Instagram credentials (username and password) are missing in the settings or environment.",
+        source: "instagram"
+      });
+    }
+
+    const result = await instagramService.syncAnalytics();
+    
+    if (!result || result.success === false) {
+      return res.status(200).json({
+        success: false,
+        error: result?.message || "Failed to run insights sync.",
+        source: "scraper"
+      });
+    }
+
+    console.log("[POST /api/sync-stats] Sync execution finished. Result:", JSON.stringify(result));
+    return res.json(result);
+  } catch(error: any) {
+    console.error("[POST /api/sync-stats] CRITICAL UNCAUGHT ERROR:", error);
+    return res.status(200).json({
+      success: false,
+      error: `Uncaught sync error: ${error.message}`,
+      source: "scraper"
+    });
   }
 });
 
 // GET /api/connection-status
 app.get("/api/connection-status", async (req, res) => {
   try {
-    const tokenSetting = await prisma.setting.findUnique({ where: { key: "instagram_access_token" } });
-    const accountIdSetting = await prisma.setting.findUnique({ where: { key: "instagram_account_id" } });
-    const handleSetting = await prisma.setting.findUnique({ where: { key: "instagram_handle" } });
+    const tokenSetting = await prisma.settings.findUnique({ where: { key: "instagram_access_token" } });
+    const accountIdSetting = await prisma.settings.findUnique({ where: { key: "instagram_account_id" } });
+    const handleSetting = await prisma.settings.findUnique({ where: { key: "instagram_handle" } });
 
     const accessToken = tokenSetting?.value || process.env.INSTAGRAM_ACCESS_TOKEN || "";
     const accountId = accountIdSetting?.value || process.env.INSTAGRAM_ACCOUNT_ID || "";

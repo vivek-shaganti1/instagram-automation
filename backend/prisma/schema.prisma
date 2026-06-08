@@ -1,88 +1,115 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-generator client {
-  provider = "prisma-client-js"
+model users {
+  id                 String               @id @default(uuid())
+  email              String               @unique
+  password           String
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  instagram_accounts instagram_accounts[]
 }
 
-model User {
+model instagram_accounts {
+  id           String      @id @default(uuid())
+  user_id      String
+  account_id   String      @unique
+  handle       String?
+  access_token String
+  is_active    Boolean     @default(true)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  analytics    analytics[]
+  user         users       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  sync_logs    sync_logs[]
+
+  @@index([user_id])
+}
+
+model analytics {
+  id          String             @id @default(uuid())
+  account_id  String
+  date        String
+  followers   Int                @default(0)
+  reach       Int                @default(0)
+  impressions Int                @default(0)
+  likes       Int                @default(0)
+  comments    Int                @default(0)
+  saves       Int                @default(0)
+  shares      Int                @default(0)
+  updatedAt   DateTime           @updatedAt
+  account     instagram_accounts @relation(fields: [account_id], references: [account_id], onDelete: Cascade)
+
+  @@unique([account_id, date])
+  @@index([account_id])
+  @@index([date])
+}
+
+model generated_posts {
+  id            String    @id @default(uuid())
+  category      String
+  status        String
+  headline      String
+  script        Json
+  video_url     String?
+  caption       String
+  views         Int       @default(0)
+  likes         Int       @default(0)
+  comments      Int       @default(0)
+  error         String?
+  scheduled_for DateTime
+  posted_at     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([status])
+  @@index([category])
+}
+
+model settings {
   id        String   @id @default(uuid())
-  email     String   @unique
-  password  String
+  key       String   @unique
+  value     String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
-model Reel {
-  id           String   @id @default(uuid())
-  category     String   // "ai", "business", "motivation"
-  status       String   // "PENDING", "GENERATING", "RENDERED", "UPLOADED", "FAILED"
-  headline     String
-  script       Json
-  videoUrl     String?  // Cloudinary or storage path
-  caption      String
-  views        Int      @default(0)
-  likes        Int      @default(0)
-  comments     Int      @default(0)
-  error        String?
-  scheduledFor DateTime
-  postedAt     DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+model sync_logs {
+  id         String             @id @default(uuid())
+  account_id String
+  status     String
+  message    String?
+  details    Json?
+  createdAt  DateTime           @default(now())
+  account    instagram_accounts @relation(fields: [account_id], references: [account_id], onDelete: Cascade)
+
+  @@index([account_id])
 }
 
-model DailyMetric {
+model used_hooks {
   id          String   @id @default(uuid())
-  date        String   @unique // "YYYY-MM-DD"
-  totalViews  Int      @default(0)
-  targetViews Int      @default(100)
-  postCount   Int      @default(0)
-  updatedAt   DateTime @updatedAt
-}
-
-model Setting {
-  id              String   @id @default(uuid())
-  key             String   @unique
-  value           String
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-}
-
-model UsedHook {
-  id          String   @id @default(uuid())
-  hookText    String   @unique
-  viralScore  Float
+  hook_text   String   @unique
+  viral_score Float
   views       Int      @default(0)
   createdAt   DateTime @default(now())
 }
 
-model UsedConcept {
+model used_concepts {
   id          String   @id @default(uuid())
   title       String
-  description String   @db.Text
+  description String
   category    String
   createdAt   DateTime @default(now())
 }
 
-model UsedTheme {
-  id          String   @id @default(uuid())
-  themeName   String
-  createdAt   DateTime @default(now())
-}
-
-model PerformanceMetric {
-  id             String   @id @default(uuid())
-  reelId         String   @unique
-  engagement     Float
-  retention      Float
-  watchTime      Float
-  shares         Int      @default(0)
-  saves          Int      @default(0)
-  reach          Int      @default(0)
-  impressions    Int      @default(0)
-  followerGrowth Int      @default(0)
-  profileVisits  Int      @default(0)
-  createdAt      DateTime @default(now())
+model used_themes {
+  id         String   @id @default(uuid())
+  theme_name String
+  createdAt  DateTime @default(now())
 }

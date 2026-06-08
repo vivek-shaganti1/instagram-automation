@@ -30,7 +30,7 @@ export class TrendService {
       console.warn("TrendService - Failed to fetch HackerNews:", e.message);
     }
 
-    // 2. TechCrunch RSS feed simulation/fallback
+    // 2. Google News RSS feed
     try {
       const tcRes = await axios.get("https://news.google.com/rss/search?q=AI+startup+funding&hl=en-US&gl=US&ceid=US:en", { timeout: 3500 });
       const titles = tcRes.data.match(/<title>([^<]+)<\/title>/g);
@@ -48,28 +48,8 @@ export class TrendService {
       console.warn("TrendService - Failed to fetch Tech News RSS:", e.message);
     }
 
-    // 3. Populate default high-viral fallback triggers if feeds are empty or blocked
     if (trends.length === 0) {
-      trends.push(
-        {
-          keyword: "AI Agent Swarms replacing developers",
-          source: "Reddit Singularity",
-          narrative: "Devin and agency replacement models running autonomously.",
-          controversy: "Displacement of entry-level engineers and technical debt."
-        },
-        {
-          keyword: "NVIDIA CUDA dominance vs OpenSource",
-          source: "X/Twitter Tech",
-          narrative: "Competing silicon and software frameworks trying to break the monopoly.",
-          controversy: "Hardware exclusivity and software vendor lock-in."
-        },
-        {
-          keyword: "Billionaire productivity disillusionment",
-          source: "Hacker News",
-          narrative: "Founders burning out on hyper-optimization and quitting biohacking.",
-          controversy: "Real business value vs influencer vanity habits."
-        }
-      );
+      throw new Error("TrendService - Failed to fetch any live trends.");
     }
 
     return trends;

@@ -54,14 +54,14 @@ export const researchWorker = new Worker(
     try {
       // If reelId is not pre-provided, initialize the DB record
       if (!reelId) {
-        const newReel = await prisma.reel.create({
+        const newReel = await prisma.generated_posts.create({
           data: {
             category,
             status: "GENERATING",
             headline: "Researching...",
             script: {},
             caption: "Researching...",
-            scheduledFor: new Date(),
+            scheduled_for: new Date(),
           }
         });
         reelId = newReel.id;
@@ -83,7 +83,7 @@ export const researchWorker = new Worker(
 
           console.log(`Running Python news researcher: ${pythonBin} ${researchScript}`);
           const { exec } = require("child_process");
-          const apiKeySetting = await prisma.setting.findUnique({ where: { key: "google_ai_api_key" } });
+          const apiKeySetting = await prisma.settings.findUnique({ where: { key: "google_ai_api_key" } });
           const apiKey = apiKeySetting?.value || "";
 
           const stdout = await new Promise<string>((resolve, reject) => {
@@ -117,7 +117,7 @@ export const researchWorker = new Worker(
     } catch (error: any) {
       console.error(`[ResearchWorker] Fatal error for job ${job.id}:`, error);
       if (reelId) {
-        await prisma.reel.update({
+        await prisma.generated_posts.update({
           where: { id: reelId },
           data: { status: "FAILED", error: error.message }
         });
@@ -127,7 +127,7 @@ export const researchWorker = new Worker(
       updateWorkerStatus("researchWorker", "idle");
     }
   },
-  { connection: defaultConnection }
+  { connection: defaultConnection, lockDuration: 300000 }
 );
 
 // 2. Strategist Worker
@@ -150,7 +150,7 @@ export const strategistWorker = new Worker(
       });
     } catch (error: any) {
       console.error(`[StrategistWorker] Failed for Reel ${reelId}:`, error);
-      await prisma.reel.update({
+      await prisma.generated_posts.update({
         where: { id: reelId },
         data: { status: "FAILED", error: error.message }
       });
@@ -176,7 +176,7 @@ export const generationWorker = new Worker(
       const headline = script.slides?.[0]?.headline || "AI Reel";
       const caption = script.caption || "";
 
-      await prisma.reel.update({
+      await prisma.generated_posts.update({
         where: { id: reelId },
         data: { headline, script: script as any, caption }
       });
@@ -191,7 +191,7 @@ export const generationWorker = new Worker(
       });
     } catch (error: any) {
       console.error(`[GenerationWorker] Failed for Reel ${reelId}:`, error);
-      await prisma.reel.update({
+      await prisma.generated_posts.update({
         where: { id: reelId },
         data: { status: "FAILED", error: error.message }
       });
@@ -217,17 +217,33 @@ export const renderWorker = new Worker(
         fs.mkdirSync(outputDir, { recursive: true });
       }
 
-      const videoPath = await videoService.generateReel(script, category, outputDir, theme, storyIndex);
+      let videoPath = "";
+      let renderAttempts = 0;
+      const maxRenderAttempts = 3;
 
-      await prisma.reel.update({
+      while (renderAttempts < maxRenderAttempts) {
+        try {
+          videoPath = await videoService.generateReel(script, category, outputDir, theme, storyIndex);
+          break; // Success
+        } catch (e: any) {
+          renderAttempts++;
+          console.error(`[RenderWorker] Render attempt ${renderAttempts} failed:`, e.message);
+          if (renderAttempts >= maxRenderAttempts) throw e;
+          // Wait before retry
+          await new Promise(r => setTimeout(r, 5000));
+        }
+      }
+
+      await prisma.generated_posts.update({
         where: { id: reelId },
         data: { status: "RENDERED" }
       });
 
       // Pass to uploadQueue with a randomized jitter delay (1 to 3 hours)
       // to mimic human posting behavior and avoid automation detection
-      const delayMs = Math.floor(Math.random() * (10800000 - 3600000 + 1) + 3600000);
-      console.log(`[RenderWorker] Upload for Reel ${reelId} delayed by ${Math.round(delayMs / 60000)} minutes for humanization jitter.`);
+      // DISABLED for testing/immediate manual execution: set to 10 seconds
+      const delayMs = 10000;
+      console.log(`[RenderWorker] Upload for Reel ${reelId} delayed by ${Math.round(delayMs / 1000)} seconds.`);
 
       await uploadQueue.add(`upload-job-${reelId}`, {
         reelId,
@@ -236,7 +252,7 @@ export const renderWorker = new Worker(
       }, { delay: delayMs });
     } catch (error: any) {
       console.error(`[RenderWorker] Failed for Reel ${reelId}:`, error);
-      await prisma.reel.update({
+      await prisma.generated_posts.update({
         where: { id: reelId },
         data: { status: "FAILED", error: error.message }
       });
@@ -245,7 +261,11 @@ export const renderWorker = new Worker(
       updateWorkerStatus("renderWorker", "idle");
     }
   },
-  { connection: defaultConnection }
+  { 
+    connection: defaultConnection,
+    concurrency: 1,
+    lockDuration: 600000 // 10 minutes to prevent stalled job restarts
+  }
 );
 
 // 5. Upload Worker
@@ -258,11 +278,11 @@ export const uploadWorker = new Worker(
 
     // Duplicate upload prevention check using atomic state locking
     const uploadLock = await prisma.$transaction(async (tx) => {
-      const currentReel = await tx.reel.findUnique({ where: { id: reelId } });
+      const currentReel = await tx.generated_posts.findUnique({ where: { id: reelId } });
       if (!currentReel || currentReel.status === "UPLOADED") {
         return { shouldUpload: false, status: currentReel?.status };
       }
-      const updated = await tx.reel.update({
+      const updated = await tx.generated_posts.update({
         where: { id: reelId },
         data: { status: "UPLOADING" }
       });
@@ -275,15 +295,16 @@ export const uploadWorker = new Worker(
     }
 
     try {
-      const localVideoUrl = `http://localhost:8000/videos/${path.basename(videoPath)}`;
+      const baseUrl = process.env.BASE_URL || "http://localhost:8000";
+      const localVideoUrl = `${baseUrl}/videos/${path.basename(videoPath)}`;
       const instagramPostId = await instagramService.postReel(videoPath, caption, reelId);
 
-      await prisma.reel.update({
+      await prisma.generated_posts.update({
         where: { id: reelId },
         data: {
           status: "UPLOADED",
-          postedAt: new Date(),
-          videoUrl: localVideoUrl
+          posted_at: new Date(),
+          video_url: localVideoUrl
         }
       });
 
@@ -293,7 +314,7 @@ export const uploadWorker = new Worker(
       await analyticsQueue.add(`analytics-sync-${reelId}`, { reelId });
     } catch (uploadErr: any) {
       console.error(`[UploadWorker] Failed to upload Reel ${reelId}:`, uploadErr);
-      await prisma.reel.update({
+      await prisma.generated_posts.update({
         where: { id: reelId },
         data: { status: "FAILED", error: uploadErr.message }
       });
@@ -304,8 +325,10 @@ export const uploadWorker = new Worker(
   },
   { 
     connection: defaultConnection,
+    concurrency: 1,
+    lockDuration: 300000, // 5 minutes to prevent stalled job restarts during upload
     limiter: {
-      max: 5,           // Max 5 uploads
+      max: 500,           // Increased from 5 for testing
       duration: 86400000 // Per 24 hours
     }
   }
@@ -319,10 +342,16 @@ export const analyticsWorker = new Worker(
     const { reelId } = job.data;
     console.log(`[AnalyticsWorker] Syncing insights for Reel: ${reelId || "global"}`);
 
-    await instagramService.syncAnalytics();
+    try {
+      await instagramService.syncAnalytics();
 
-    // Trigger learning optimizations
-    await optimizationQueue.add("optimization-job", {});
+      // Trigger learning optimizations
+      await optimizationQueue.add("optimization-job", {});
+    } catch (error: any) {
+      console.error(`[AnalyticsWorker] Failed:`, error);
+      updateWorkerStatus("analyticsWorker", "failed", error.message);
+      throw error;
+    }
 
     updateWorkerStatus("analyticsWorker", "idle");
   },
@@ -336,8 +365,14 @@ export const optimizationWorker = new Worker(
     updateWorkerStatus("optimizationWorker", "processing");
     console.log(`[OptimizationWorker] Refining strategist rules and tracking fatigue thresholds`);
     
-    // Perform cleanup checks
-    await cleanupQueue.add("cleanup-job", {});
+    try {
+      // Perform cleanup checks
+      await cleanupQueue.add("cleanup-job", {});
+    } catch (error: any) {
+      console.error(`[OptimizationWorker] Failed:`, error);
+      updateWorkerStatus("optimizationWorker", "failed", error.message);
+      throw error;
+    }
     
     updateWorkerStatus("optimizationWorker", "idle");
   },
@@ -351,24 +386,30 @@ export const cleanupWorker = new Worker(
     updateWorkerStatus("cleanupWorker", "processing");
     console.log(`[CleanupWorker] Starting temp storage purge`);
 
-    const outputDir = path.join(__dirname, "..", "output");
-    if (fs.existsSync(outputDir)) {
-      const files = fs.readdirSync(outputDir);
-      const now = Date.now();
-      const cutoff = 24 * 3600 * 1000; // 24 hours
+    try {
+      const outputDir = path.join(__dirname, "..", "output");
+      if (fs.existsSync(outputDir)) {
+        const files = fs.readdirSync(outputDir);
+        const now = Date.now();
+        const cutoff = 24 * 3600 * 1000; // 24 hours
 
-      files.forEach(file => {
-        const filePath = path.join(outputDir, file);
-        try {
-          const stats = fs.statSync(filePath);
-          if (now - stats.mtimeMs > cutoff) {
-            fs.unlinkSync(filePath);
-            console.log(`[CleanupWorker] Purged stale rendering file: ${file}`);
+        files.forEach(file => {
+          const filePath = path.join(outputDir, file);
+          try {
+            const stats = fs.statSync(filePath);
+            if (now - stats.mtimeMs > cutoff) {
+              fs.unlinkSync(filePath);
+              console.log(`[CleanupWorker] Purged stale rendering file: ${file}`);
+            }
+          } catch (e: any) {
+            console.error(`[CleanupWorker] Failed to delete ${file}:`, e.message);
           }
-        } catch (e: any) {
-          console.error(`[CleanupWorker] Failed to delete ${file}:`, e.message);
-        }
-      });
+        });
+      }
+    } catch (error: any) {
+      console.error(`[CleanupWorker] Failed:`, error);
+      updateWorkerStatus("cleanupWorker", "failed", error.message);
+      throw error;
     }
 
     updateWorkerStatus("cleanupWorker", "idle");

@@ -24,9 +24,9 @@ async function runBackup() {
     let settings: any[] = [];
 
     try {
-      reels = await prisma.reel.findMany();
-      metrics = await prisma.performanceMetric.findMany();
-      settings = await prisma.setting.findMany();
+      reels = await prisma.generated_posts.findMany();
+      metrics = await prisma.analytics.findMany();
+      settings = await prisma.settings.findMany();
       console.log(`Database queries successful. Reels: ${reels.length}, Metrics: ${metrics.length}, Settings: ${settings.length}`);
     } catch (dbErr) {
       console.warn("⚠️ Postgres database unreachable during backup. Exporting fallback state.");

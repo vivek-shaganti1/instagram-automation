@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { RotateCw, CheckCircle2, AlertTriangle, Eye, Video } from "lucide-react";
+import { getApiUrl } from "@/utils/api";
 
 export default function LibraryPage() {
   const router = useRouter();
@@ -16,7 +17,7 @@ export default function LibraryPage() {
       return;
     }
 
-    fetch("http://localhost:8000/api/stats")
+    fetch(getApiUrl("/api/stats"))
       .then(res => res.json())
       .then(data => {
         setReels(data.posts || []);

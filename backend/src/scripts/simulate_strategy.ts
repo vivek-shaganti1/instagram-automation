@@ -11,9 +11,9 @@ async function runStrategySimulation() {
   console.log("🚀 STARTING VIRAL STRATEGIST 100-REEL SIMULATION 🚀");
   
   // Backup API key setting & env key to run locally and instantly without slow 429 timeouts
-  const originalApiKeySetting = await prisma.setting.findUnique({ where: { key: "google_ai_api_key" } });
+  const originalApiKeySetting = await prisma.settings.findUnique({ where: { key: "google_ai_api_key" } });
   if (originalApiKeySetting) {
-    await prisma.setting.delete({ where: { key: "google_ai_api_key" } });
+    await prisma.settings.delete({ where: { key: "google_ai_api_key" } });
     console.log("Temporarily backed up Google AI API key setting.");
   }
   
@@ -24,9 +24,9 @@ async function runStrategySimulation() {
   }
 
   // Clean up database tables for clean simulation tracking
-  await prisma.usedConcept.deleteMany();
-  await prisma.usedHook.deleteMany();
-  await prisma.usedTheme.deleteMany();
+  await prisma.used_concepts.deleteMany();
+  await prisma.used_hooks.deleteMany();
+  await prisma.used_themes.deleteMany();
   console.log("Database tables cleared for strategic simulation audit.\n");
 
   const categories = ["ai", "business", "motivation"];
@@ -96,7 +96,7 @@ async function runStrategySimulation() {
   } finally {
     // Restore original setting
     if (originalApiKeySetting) {
-      await prisma.setting.create({
+      await prisma.settings.create({
         data: {
           key: "google_ai_api_key",
           value: originalApiKeySetting.value

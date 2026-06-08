@@ -20,10 +20,10 @@ export class VideoService {
     const outputPath = path.join(outputDir, filename);
 
     // Retrieve settings from database
-    const apiKeySetting = await prisma.setting.findUnique({ where: { key: "google_ai_api_key" } });
+    const apiKeySetting = await prisma.settings.findUnique({ where: { key: "google_ai_api_key" } });
     const apiKey = apiKeySetting?.value || process.env.GOOGLE_AI_API_KEY || "";
 
-    const handleSetting = await prisma.setting.findUnique({ where: { key: "instagram_handle" } });
+    const handleSetting = await prisma.settings.findUnique({ where: { key: "instagram_handle" } });
     const handle = handleSetting?.value || process.env.INSTAGRAM_HANDLE || "@ai_signal_09";
 
     return new Promise((resolve, reject) => {
@@ -53,7 +53,7 @@ export class VideoService {
       }
 
       const { exec } = require("child_process");
-      exec(cmd, { cwd: rootDir }, (error: any, stdout: string, stderr: string) => {
+      exec(cmd, { cwd: rootDir, timeout: 600000, killSignal: 'SIGKILL' }, (error: any, stdout: string, stderr: string) => {
         console.log("Compiler stdout:", stdout);
         if (stderr) console.error("Compiler stderr:", stderr);
 
@@ -84,8 +84,7 @@ export class VideoService {
     }
 
     if (!this.pexelsApiKey) {
-      console.warn("PEXELS_API_KEY missing, using fallback blank clip.");
-      return this.createBlankVideo(outputDir);
+      throw new Error("PEXELS_API_KEY missing, cannot fetch video.");
     }
 
     try {
@@ -115,9 +114,9 @@ export class VideoService {
       });
 
       return clipPath;
-    } catch (error) {
-      console.error("Failed to fetch Pexels video, using blank fallback:", error);
-      return this.createBlankVideo(outputDir);
+    } catch (error: any) {
+      console.error("Failed to fetch Pexels video:", error);
+      throw new Error(`Failed to fetch Pexels video: ${error.message}`);
     }
   }
 
@@ -130,8 +129,7 @@ export class VideoService {
       .join(" ");
 
     if (!this.elevenLabsApiKey) {
-      console.warn("ELEVENLABS_API_KEY missing, using mock text-to-speech fallback.");
-      return this.createMockAudio(audioPath);
+      throw new Error("ELEVENLABS_API_KEY missing, cannot synthesize voiceover.");
     }
 
     try {
@@ -151,9 +149,9 @@ export class VideoService {
 
       fs.writeFileSync(audioPath, Buffer.from(response.data));
       return audioPath;
-    } catch (error) {
-      console.error("ElevenLabs TTS failed, using mock audio:", error);
-      return this.createMockAudio(audioPath);
+    } catch (error: any) {
+      console.error("ElevenLabs TTS failed:", error);
+      throw new Error(`ElevenLabs TTS failed: ${error.message}`);
     }
   }
 
@@ -197,32 +195,5 @@ export class VideoService {
     });
   }
 
-  private createBlankVideo(outputDir: string): string {
-    const blankPath = path.join(outputDir, "blank_clip.mp4");
-    if (fs.existsSync(blankPath)) return blankPath;
-    
-    try {
-      console.log("Generating local blank black video clip fallback...");
-      const { execSync } = require("child_process");
-      execSync(`ffmpeg -y -f lavfi -i color=c=black:s=720x1280:r=25 -t 20 -c:v libx264 -pix_fmt yuv420p "${blankPath}"`);
-      console.log("Local blank black video clip generated successfully.");
-    } catch (error) {
-      console.error("Failed to generate blank video clip via ffmpeg:", error);
-    }
-    return blankPath;
-  }
-
-  private createMockAudio(destPath: string): string {
-    try {
-      console.log("Generating local silent audio fallback...");
-      const { execSync } = require("child_process");
-      execSync(`ffmpeg -y -f lavfi -i anullsrc=r=44100:cl=mono -t 20 -c:a libmp3lame "${destPath}"`);
-      console.log("Local silent audio generated successfully.");
-    } catch (error) {
-      console.error("Failed to generate silent audio via ffmpeg, writing empty file:", error);
-      fs.writeFileSync(destPath, Buffer.alloc(0));
-    }
-    return destPath;
-  }
 }
 

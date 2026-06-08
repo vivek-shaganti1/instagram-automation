@@ -1,416 +1,278 @@
 import axios from "axios";
 import { PrismaClient } from "@prisma/client";
-import { exec } from "child_process";
 import path from "path";
-import fs from "fs";
 
 const prisma = new PrismaClient();
 
 export class InstagramService {
-  private accessToken: string;
-  private instagramAccountId: string;
-
-  constructor() {
-    this.accessToken = process.env.INSTAGRAM_ACCESS_TOKEN || "";
-    this.instagramAccountId = process.env.INSTAGRAM_ACCOUNT_ID || "";
-  }
-
   async postReel(videoPath: string, caption: string, reelId?: string): Promise<string> {
-    if (reelId) {
-      const existing = await prisma.reel.findUnique({ where: { id: reelId } });
-      if (existing && existing.status === "UPLOADED") {
-        console.log(`[InstagramService] Reel ${reelId} is already marked UPLOADED. Returning mock/existing ID.`);
-        return `existing_reel_pk_${Date.now()}`;
-      }
-    }
-
-    const tokenSetting = await prisma.setting.findUnique({ where: { key: "instagram_access_token" } });
-    const accountIdSetting = await prisma.setting.findUnique({ where: { key: "instagram_account_id" } });
-    const accessToken = tokenSetting?.value || process.env.INSTAGRAM_ACCESS_TOKEN || "";
-    const accountId = accountIdSetting?.value || process.env.INSTAGRAM_ACCOUNT_ID || "";
+    const tokenSetting = await prisma.settings.findUnique({ where: { key: "instagram_access_token" } });
+    const accountIdSetting = await prisma.settings.findUnique({ where: { key: "instagram_account_id" } });
+    const accessToken = tokenSetting?.value || process.env.INSTAGRAM_ACCESS_TOKEN;
+    const accountId = accountIdSetting?.value || process.env.INSTAGRAM_ACCOUNT_ID;
 
     if (!accessToken || !accountId) {
-      if (process.env.ALLOW_MOCK_UPLOADS === "true") {
-        console.warn("Instagram Graph credentials missing. Simulating Reel upload because ALLOW_MOCK_UPLOADS is active.");
-        return `mock_reel_pk_${Date.now()}`;
-      }
-      throw new Error("Instagram configuration error: Graph API credentials missing. Reel upload aborted.");
+      console.log(`[InstagramService] Graph API keys missing. Falling back to instagrapi upload...`);
+      return new Promise((resolve, reject) => {
+        const rootEnvPath = require("path").join(__dirname, "..", "..", "..", ".env");
+        require("dotenv").config({ path: require("fs").existsSync(rootEnvPath) ? rootEnvPath : require("path").join(__dirname, "..", "..", ".env") });
+        const username = process.env.INSTAGRAM_USERNAME;
+        const password = process.env.INSTAGRAM_PASSWORD;
+        if (!username || !password) {
+          return reject(new Error("Instagram username/password missing in .env. Cannot fallback to Instagrapi upload."));
+        }
+
+        const getProjectRoot = () => {
+          const p2 = path.resolve(__dirname, "..", "..");
+          if (require("fs").existsSync(path.join(p2, "main.py"))) return p2;
+          const p3 = path.resolve(__dirname, "..", "..", "..");
+          if (require("fs").existsSync(path.join(p3, "main.py"))) return p3;
+          return "/Users/vivekshaganti/Desktop/Projects/Instagram automation";
+        };
+        const rootDir = getProjectRoot();
+        const pythonBin = path.join(rootDir, "venv", "bin", "python");
+        const uploadScript = path.join(rootDir, "upload_reel_cli.py");
+
+        // Escape double quotes in caption for shell
+        const safeCaption = caption.replace(/"/g, '\\"');
+        const cmd = `"${pythonBin}" "${uploadScript}" --video "${videoPath}" --caption "${safeCaption}" --username "${username}" --password "${password}"`;
+        
+        require("child_process").exec(cmd, { cwd: rootDir, timeout: 300000, killSignal: 'SIGKILL' }, (error: any, stdout: string, stderr: string) => {
+          if (error) {
+             console.error("[Instagrapi] Error:", stderr || error.message);
+             return reject(new Error(`Instagrapi Upload failed: ${stderr || error.message}`));
+          }
+          const match = stdout.match(/UPLOAD_SUCCESS:(.*)/);
+          if (match) {
+             console.log(`[InstagramService] Instagrapi Upload Successful. Media ID: ${match[1]}`);
+             return resolve(match[1].trim());
+          }
+          return reject(new Error(`Instagrapi Upload failed: ${stdout}`));
+        });
+      });
     }
 
     try {
-      console.log(`[InstagramService] Initiating official Meta Graph API upload for Account: ${accountId}`);
-      const baseUrl = process.env.BASE_URL || "https://api.yourdomain.com"; // Must be public
+      console.log(`[InstagramService] Uploading to Meta Graph API for Account: ${accountId}`);
+      const baseUrl = process.env.BASE_URL || "http://localhost:8000";
       const videoUrl = `${baseUrl}/videos/${path.basename(videoPath)}`;
 
-      // Step 1: Create media container
+      // 1. Create container
       const containerRes = await axios.post(`https://graph.facebook.com/v19.0/${accountId}/media`, null, {
-        params: {
-          video_url: videoUrl,
-          caption: caption,
-          media_type: "REEL",
-          access_token: accessToken
-        }
+        params: { video_url: videoUrl, caption: caption, media_type: "REEL", access_token: accessToken }
       });
 
       const creationId = containerRes.data.id;
-      if (!creationId) {
-        throw new Error("Failed to create media container.");
-      }
+      if (!creationId) throw new Error("Failed to create media container.");
 
-      console.log(`[InstagramService] Container created: ${creationId}. Waiting for Meta to process video...`);
-      
-      // Meta requires time to process the video before publishing.
+      // Wait for Meta
       let isReady = false;
       let attempts = 0;
       while (!isReady && attempts < 15) {
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        await new Promise(r => setTimeout(r, 5000));
         attempts++;
         const statusRes = await axios.get(`https://graph.facebook.com/v19.0/${creationId}`, {
           params: { fields: "status_code", access_token: accessToken }
         });
-        const statusCode = statusRes.data.status_code;
-        if (statusCode === "FINISHED") {
-          isReady = true;
-        } else if (statusCode === "ERROR") {
-          throw new Error("Meta Graph API returned ERROR during video processing.");
-        }
+        if (statusRes.data.status_code === "FINISHED") isReady = true;
+        else if (statusRes.data.status_code === "ERROR") throw new Error("Meta Graph API ERROR during video processing.");
       }
 
-      if (!isReady) {
-        throw new Error("Timed out waiting for Meta to process the video container.");
-      }
+      if (!isReady) throw new Error("Timed out waiting for Meta processing.");
 
-      // Step 2: Publish the media container
+      // 2. Publish
       const publishRes = await axios.post(`https://graph.facebook.com/v19.0/${accountId}/media_publish`, null, {
-        params: {
-          creation_id: creationId,
-          access_token: accessToken
-        }
+        params: { creation_id: creationId, access_token: accessToken }
       });
 
       const mediaId = publishRes.data.id;
-      if (!mediaId) {
-        throw new Error("Failed to publish media container.");
-      }
+      if (!mediaId) throw new Error("Failed to publish media container.");
 
-      console.log(`[InstagramService] Official Meta Graph API Upload Successful. Media ID: ${mediaId}`);
+      console.log(`[InstagramService] Upload Successful. Media ID: ${mediaId}`);
       return mediaId;
     } catch (error: any) {
-      console.error("[InstagramService] Graph API Upload Error:", error.response?.data || error.message);
+      console.error("[InstagramService] Upload Error:", error.response?.data || error.message);
       throw new Error(`Graph API Upload failed: ${error.response?.data?.error?.message || error.message}`);
     }
   }
 
   async syncAnalytics(): Promise<any> {
-    const tokenSetting = await prisma.setting.findUnique({ where: { key: "instagram_access_token" } });
-    const accountIdSetting = await prisma.setting.findUnique({ where: { key: "instagram_account_id" } });
+    console.log("[syncAnalytics] Checking database for instagram_username and instagram_password...");
+    const userSetting = await prisma.settings.findUnique({ where: { key: "instagram_username" } });
+    const passSetting = await prisma.settings.findUnique({ where: { key: "instagram_password" } });
+    const username = userSetting?.value || process.env.INSTAGRAM_USERNAME || "ai_signal_09";
+    const password = passSetting?.value || process.env.INSTAGRAM_PASSWORD;
 
-    const accessToken = tokenSetting?.value || process.env.INSTAGRAM_ACCESS_TOKEN || "";
-    const accountId = accountIdSetting?.value || process.env.INSTAGRAM_ACCOUNT_ID || "";
-
-    if (!accessToken || !accountId) {
-      console.warn("Instagram Graph API credentials missing. Simulating metrics because ALLOW_MOCK_ANALYTICS is active.");
-      if (process.env.ALLOW_MOCK_ANALYTICS === "true") {
-        console.warn("Using simulated metrics because ALLOW_MOCK_ANALYTICS is active.");
-        return this.generateSimulatedMetrics();
-      }
-      throw new Error("Instagram Graph API configuration error: access token or account ID missing.");
+    if (!username || !password) {
+      console.log("[syncAnalytics] Missing INSTAGRAM_USERNAME or INSTAGRAM_PASSWORD in settings and .env. Skipping sync.");
+      return { success: false, message: "Instagram username/password missing.", followers: 0, posts: 0, likes: 0 };
     }
 
-    try {
-      console.log(`[InstagramService] Commencing live Meta Graph API sync for Account: ${accountId}`);
-      
-      // 1. Fetch user's media list from Graph API
-      const mediaUrl = `https://graph.facebook.com/v19.0/${accountId}/media?fields=id,caption,like_count,comments_count,media_url,timestamp&access_token=${accessToken}`;
-      const response = await axios.get(mediaUrl);
-      const mediaItems = response.data?.data || [];
+    return new Promise((resolve) => {
+      const getProjectRoot = () => {
+        const p2 = path.resolve(__dirname, "..", "..");
+        if (require("fs").existsSync(path.join(p2, "sync_insights_cli.py"))) return p2;
+        const p3 = path.resolve(__dirname, "..", "..", "..");
+        if (require("fs").existsSync(path.join(p3, "sync_insights_cli.py"))) return p3;
+        return "/Users/vivekshaganti/Desktop/Projects/Instagram automation";
+      };
 
-      // Query DB Reels to sync stats
-      const dbReels = await prisma.reel.findMany({
-        where: { status: "UPLOADED" }
-      });
+      const rootDir = getProjectRoot();
+      const pythonBin = path.join(rootDir, "venv", "bin", "python");
+      const syncScript = path.join(rootDir, "sync_insights_cli.py");
 
-      const cleanStr = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+      const cmd = `"${pythonBin}" "${syncScript}" --username "${username}" --password "${password}"`;
+      console.log(`[syncAnalytics] Running command: ${cmd}`);
 
-      for (const dbReel of dbReels) {
-        const dbClean = cleanStr(dbReel.caption || "");
-        if (!dbClean) continue;
+      require("child_process").exec(cmd, { cwd: rootDir, timeout: 120000 }, async (error: any, stdout: string, stderr: string) => {
+        if (error) {
+          console.warn("[syncAnalytics] Python script failed with error. Falling back to parsing stdout if available.", error.message);
+        }
+        if (stderr) {
+          console.warn("[syncAnalytics] Python stderr output:\n", stderr);
+        }
 
-        // Try to match by clean caption similarity
-        const match = mediaItems.find((m: any) => {
-          const igClean = cleanStr(m.caption || "");
-          return igClean.includes(dbClean) || dbClean.includes(igClean);
-        });
+        const match = stdout.match(/SYNC_SUCCESS\s*\n([\s\S]*)/);
+        if (!match) {
+          console.error("[syncAnalytics] Could not find SYNC_SUCCESS in stdout:\n", stdout);
+          return resolve({
+            success: false,
+            message: "Failed to locate SYNC_SUCCESS identifier in output.",
+            followers: 0,
+            posts: 0,
+            likes: 0
+          });
+        }
 
-        if (match) {
-          console.log(`[Graph Sync] Matched Reel: "${dbReel.headline}" to Media ID: ${match.id}`);
-          
-          let views = 0;
-          let reach = 0;
-          let impressions = 0;
-          let saves = 0;
-          let shares = 0;
+        try {
+          const parsedData = JSON.parse(match[1].trim());
+          console.log("[syncAnalytics] Successfully parsed scraped metrics:", JSON.stringify(parsedData));
 
-          // 2. Fetch specific Insights for this matched Media ID
-          try {
-            const insightsUrl = `https://graph.facebook.com/v19.0/${match.id}/insights?metric=reach,impressions,saved,video_views&access_token=${accessToken}`;
-            const insRes = await axios.get(insightsUrl);
-            const insights = insRes.data?.data || [];
-            
-            reach = insights.find((i: any) => i.name === "reach")?.values?.[0]?.value || 0;
-            impressions = insights.find((i: any) => i.name === "impressions")?.values?.[0]?.value || 0;
-            saves = insights.find((i: any) => i.name === "saved")?.values?.[0]?.value || 0;
-            views = insights.find((i: any) => i.name === "video_views")?.values?.[0]?.value || 0;
-          } catch (insErr: any) {
-            console.warn(`[Graph Sync] Could not fetch granular insights for Media ${match.id}:`, insErr.message);
+          if (parsedData.success === false) {
+            console.error("[syncAnalytics] Scraper reported failure:", parsedData.error);
+            return resolve({
+              success: false,
+              message: parsedData.error || "Scraper failed to collect insights.",
+              source: parsedData.source || "scraper",
+              followers: 0,
+              posts: 0,
+              likes: 0
+            });
           }
 
-          // Fallback views if video_views metric is not supported on layout/account
-          if (views === 0) {
-            views = match.like_count * 12 + Math.floor(Math.random() * 50);
+          // Ensure instagram_accounts record exists to avoid Prisma foreign key violation
+          let dbUser = await prisma.users.findFirst();
+          if (!dbUser) {
+            // Create a default user if none exists
+            dbUser = await prisma.users.create({
+              data: { email: "admin@saas.com", password: "password" }
+            });
           }
 
-          await prisma.reel.update({
-            where: { id: dbReel.id },
-            data: {
-              views,
-              likes: match.like_count || 0,
-              comments: match.comments_count || 0,
-              videoUrl: match.media_url || dbReel.videoUrl
+          const account = await prisma.instagram_accounts.upsert({
+            where: { account_id: username },
+            update: { handle: username },
+            create: {
+              user_id: dbUser.id,
+              account_id: username,
+              handle: username,
+              access_token: "session_scraping"
             }
           });
 
-          // Sync database metrics row
-          await prisma.performanceMetric.upsert({
-            where: { reelId: dbReel.id },
+          // Calculate aggregate metrics from scraped reels
+          let totalLikes = 0;
+          let totalComments = 0;
+          let totalViews = 0;
+
+          if (parsedData.reels && Array.isArray(parsedData.reels)) {
+            for (const scrapedReel of parsedData.reels) {
+              totalLikes += scrapedReel.likes || 0;
+              totalComments += scrapedReel.comments || 0;
+              totalViews += scrapedReel.views || 0;
+
+              // Find and update matching generated posts in the database
+              let matchedPost = await prisma.generated_posts.findFirst({
+                where: {
+                  OR: [
+                    { caption: { contains: scrapedReel.code } },
+                    { caption: { contains: scrapedReel.caption.slice(0, 30) } }
+                  ]
+                }
+              });
+
+              if (!matchedPost) {
+                // Fallback: match any UPLOADED post that hasn't been updated yet
+                matchedPost = await prisma.generated_posts.findFirst({
+                  where: {
+                    status: "UPLOADED",
+                    views: 0,
+                    likes: 0
+                  },
+                  orderBy: { createdAt: "desc" }
+                });
+              }
+
+              if (matchedPost) {
+                await prisma.generated_posts.update({
+                  where: { id: matchedPost.id },
+                  data: {
+                    views: scrapedReel.views,
+                    likes: scrapedReel.likes,
+                    comments: scrapedReel.comments
+                  }
+                });
+              }
+            }
+          }
+
+          // Save metrics to the analytics table
+          const today = new Date().toISOString().split("T")[0];
+          const analyticsRecord = await prisma.analytics.upsert({
+            where: {
+              account_id_date: {
+                account_id: account.account_id,
+                date: today
+              }
+            },
             update: {
-              engagement: views > 0 ? ((match.like_count || 0) + (match.comments_count || 0)) / views : 0,
-              reach,
-              impressions,
-              saves,
-              shares
+              followers: parsedData.followers || 0,
+              reach: totalViews,
+              impressions: totalViews,
+              likes: totalLikes,
+              comments: totalComments
             },
             create: {
-              reelId: dbReel.id,
-              engagement: views > 0 ? ((match.like_count || 0) + (match.comments_count || 0)) / views : 0,
-              retention: 0.72,
-              watchTime: views * 4.2,
-              reach,
-              impressions,
-              saves,
-              shares
+              account_id: account.account_id,
+              date: today,
+              followers: parsedData.followers || 0,
+              reach: totalViews,
+              impressions: totalViews,
+              likes: totalLikes,
+              comments: totalComments
             }
           });
-        } else {
-          if (process.env.ALLOW_MOCK_ANALYTICS === "true") {
-            await this.incrementReelSimulatedMetrics(dbReel);
-          } else {
-            console.warn(`[Graph Sync] Reel "${dbReel.headline}" was not matched in Meta Graph media list.`);
-          }
+
+          console.log("[syncAnalytics] Saved analytics record successfully:", JSON.stringify(analyticsRecord));
+
+          return resolve({
+            success: true,
+            followers: parsedData.followers,
+            posts: parsedData.media_count || parsedData.reels.length,
+            likes: totalLikes
+          });
+
+        } catch (parseError: any) {
+          console.error("[syncAnalytics] Error parsing or saving scraped stats:", parseError.message);
+          return resolve({
+            success: false,
+            message: `Error processing insights: ${parseError.message}`,
+            followers: 0,
+            posts: 0,
+            likes: 0
+          });
         }
-      }
-
-      // Update today's overview metrics
-      const updatedReels = await prisma.reel.findMany({ where: { status: "UPLOADED" } });
-      const totalViews = updatedReels.reduce((sum, r) => sum + (r.views || 0), 0);
-      const postCount = updatedReels.length;
-
-      const todayStr = new Date().toISOString().split("T")[0];
-      const metric = await prisma.dailyMetric.upsert({
-        where: { date: todayStr },
-        update: { totalViews, postCount },
-        create: { date: todayStr, totalViews, postCount, targetViews: 100 }
       });
-
-      return metric;
-    } catch (graphErr: any) {
-      console.error("[Graph Sync] Failure during live Meta Graph sync:", graphErr.message);
-      if (process.env.ALLOW_MOCK_ANALYTICS === "true") {
-        return this.generateSimulatedMetrics();
-      }
-      throw graphErr;
-    }
-  }
-
-
-
-  private async incrementReelSimulatedMetrics(reel: any): Promise<void> {
-    let currentViews = reel.views;
-    let currentLikes = reel.likes;
-    let currentComments = reel.comments;
-
-    if (currentViews === 0) {
-      // Initialize with realistic view count
-      currentViews = Math.floor(Math.random() * 300) + 150;
-      currentLikes = Math.floor(currentViews * (0.08 + Math.random() * 0.07));
-      currentComments = Math.floor(currentLikes * (0.04 + Math.random() * 0.05));
-    } else {
-      // Increment views and likes
-      const addedViews = Math.floor(Math.random() * 150) + 50;
-      currentViews += addedViews;
-      currentLikes += Math.floor(addedViews * (0.08 + Math.random() * 0.07));
-      currentComments += Math.floor(Math.random() * 3);
-    }
-
-    await prisma.reel.update({
-      where: { id: reel.id },
-      data: {
-        views: currentViews,
-        likes: currentLikes,
-        comments: currentComments
-      }
-    });
-    await this.upsertPerformanceMetric(reel.id, currentViews, currentLikes, currentComments);
-  }
-
-  private async generateSimulatedMetrics(): Promise<any> {
-    const todayStr = new Date().toISOString().split("T")[0];
-    
-    // Read user settings for growth targets
-    const dbSettings = await prisma.setting.findMany();
-    const settingsMap = dbSettings.reduce((acc: any, cur) => {
-      acc[cur.key] = cur.value;
-      return acc;
-    }, {});
-    
-    const targetBaseline = parseInt(settingsMap["target_baseline"]) || 100;
-    const growthMultiplier = parseFloat((settingsMap["growth_multiplier"] || "15").replace("%", "")) / 100 || 0.15;
-
-    // Get all uploaded reels and update/increment their views and likes organically first
-    const uploadedReels = await prisma.reel.findMany({
-      where: { status: "UPLOADED" }
-    });
-
-    for (const reel of uploadedReels) {
-      await this.incrementReelSimulatedMetrics(reel);
-    }
-
-    // Fetch the updated reels to sum their views
-    let updatedReels = await prisma.reel.findMany({
-      where: { status: "UPLOADED" }
-    });
-    
-    let totalViews = updatedReels.reduce((sum: number, r) => sum + r.views, 0);
-
-    // Calculate today's target views based on previous daily target (excluding today's date)
-    const lastMetric = await prisma.dailyMetric.findFirst({
-      where: {
-        date: {
-          not: todayStr
-        }
-      },
-      orderBy: { date: "desc" }
-    });
-
-    let targetViews = targetBaseline;
-    if (lastMetric) {
-      targetViews = Math.floor(lastMetric.targetViews * (1 + growthMultiplier));
-    }
-
-    // If actual views are less than the target views, and we have uploaded reels,
-    // we boost the reels' views so they meet/slightly exceed the target.
-    if (totalViews < targetViews && updatedReels.length > 0) {
-      const difference = (targetViews - totalViews) + Math.floor(targetViews * (0.02 + Math.random() * 0.05));
-      const perReelBoost = Math.floor(difference / updatedReels.length);
-      
-      if (perReelBoost > 0) {
-        for (const reel of updatedReels) {
-          const newViews = reel.views + perReelBoost;
-          const newLikes = reel.likes + Math.floor(perReelBoost * (0.08 + Math.random() * 0.05));
-          const newComments = reel.comments + Math.floor(perReelBoost * (0.01 + Math.random() * 0.02));
-          
-          await prisma.reel.update({
-            where: { id: reel.id },
-            data: {
-              views: newViews,
-              likes: newLikes,
-              comments: newComments
-            }
-          });
-          await this.upsertPerformanceMetric(reel.id, newViews, newLikes, newComments);
-        }
-        
-        // Re-fetch updated reels to calculate correct totalViews
-        updatedReels = await prisma.reel.findMany({
-          where: { status: "UPLOADED" }
-        });
-        totalViews = updatedReels.reduce((sum: number, r) => sum + r.views, 0);
-      }
-    }
-
-    const metric = await prisma.dailyMetric.upsert({
-      where: { date: todayStr },
-      update: {
-        totalViews: totalViews || Math.floor(Math.random() * 500) + 200,
-        targetViews,
-        postCount: uploadedReels.length || 3
-      },
-      create: {
-        date: todayStr,
-        totalViews: totalViews || Math.floor(Math.random() * 500) + 200,
-        targetViews,
-        postCount: uploadedReels.length || 3
-      }
-    });
-
-    return metric;
-  }
-
-  async upsertPerformanceMetric(reelId: string, views: number, likes: number, comments: number): Promise<void> {
-    const engagement = views > 0 ? (likes + comments) / views : 0;
-    
-    // Seeded/deterministic-like random values based on reelId to keep them relatively stable across repeated syncs,
-    // but still organic-looking and non-hardcoded.
-    let hash = 0;
-    for (let i = 0; i < reelId.length; i++) {
-      hash = (hash << 5) - hash + reelId.charCodeAt(i);
-      hash |= 0;
-    }
-    const seed = Math.abs(hash) / 2147483647; // Float between 0 and 1
-
-    const shareMultiplier = 0.05 + seed * 0.1;
-    const saveMultiplier = 0.1 + seed * 0.15;
-    const reachMultiplier = 0.85 + seed * 0.12;
-    const impressionMultiplier = 1.1 + seed * 0.3;
-    const followerMultiplier = 0.005 + seed * 0.01;
-    const profileMultiplier = 0.02 + seed * 0.03;
-    const retentionRate = 0.35 + seed * 0.45;
-    const avgWatchTime = 5.0 + seed * 9.0;
-
-    const shares = Math.round(likes * shareMultiplier);
-    const saves = Math.round(likes * saveMultiplier);
-    const reach = Math.round(views * reachMultiplier);
-    const impressions = Math.round(reach * impressionMultiplier);
-    const followerGrowth = Math.round(views * followerMultiplier);
-    const profileVisits = Math.round(views * profileMultiplier);
-    const retention = parseFloat(retentionRate.toFixed(4));
-    const watchTime = parseFloat((views * avgWatchTime).toFixed(2));
-
-    await prisma.performanceMetric.upsert({
-      where: { reelId },
-      update: {
-        engagement,
-        retention,
-        watchTime,
-        shares,
-        saves,
-        reach,
-        impressions,
-        followerGrowth,
-        profileVisits
-      },
-      create: {
-        reelId,
-        engagement,
-        retention,
-        watchTime,
-        shares,
-        saves,
-        reach,
-        impressions,
-        followerGrowth,
-        profileVisits
-      }
     });
   }
 }

@@ -11,9 +11,9 @@ async function runSimulation() {
   console.log("🚀 STARTING VIRAL CONTENT STRATEGIST SIMULATION (50 REELS) 🚀");
   
   // Clean up database tables for clean simulation tracking
-  await prisma.usedConcept.deleteMany();
-  await prisma.usedHook.deleteMany();
-  await prisma.usedTheme.deleteMany();
+  await prisma.used_concepts.deleteMany();
+  await prisma.used_hooks.deleteMany();
+  await prisma.used_themes.deleteMany();
   console.log("Memory database tables cleared for simulation audit.");
 
   const categories = ["ai", "business", "motivation"];

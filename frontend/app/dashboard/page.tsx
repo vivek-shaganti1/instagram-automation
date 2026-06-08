@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Play, RotateCw, Sparkles, TrendingUp, CheckCircle, Clock, LogOut, BarChart3, LineChart, Target, Eye, Bookmark, Flame, Zap, Calendar, Award, Activity, ShieldAlert, Cpu, Server, Database } from "lucide-react";
+import { getApiUrl } from "../../utils/api";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -17,8 +18,6 @@ export default function DashboardPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [backendError, setBackendError] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState("");
-  
-  const getApiUrl = () => process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
   const fetchStats = async () => {
     try {
@@ -106,19 +105,28 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
+    let mounted = true;
+    let timeoutId: NodeJS.Timeout;
+
     const cachedUser = localStorage.getItem("user");
     if (!cachedUser || cachedUser === "undefined") {
       router.push("/login");
       return;
     }
+
+    const poll = async () => {
+      if (!mounted) return;
+      await fetchStats();
+      if (mounted) {
+        timeoutId = setTimeout(poll, 5000);
+      }
+    };
+
     try {
       const parsed = JSON.parse(cachedUser);
       if (parsed && parsed.email) {
         setUserEmail(parsed.email);
-        fetchStats();
-        // Setup live polling for real-time status updates
-        const intervalId = setInterval(fetchStats, 5000);
-        return () => clearInterval(intervalId);
+        poll();
       } else {
         localStorage.removeItem("user");
         router.push("/login");
@@ -128,6 +136,11 @@ export default function DashboardPage() {
       localStorage.removeItem("user");
       router.push("/login");
     }
+
+    return () => {
+      mounted = false;
+      clearTimeout(timeoutId);
+    };
   }, []);
 
   const handleLogout = () => {
@@ -189,8 +202,18 @@ export default function DashboardPage() {
   }
 
   const posts = stats?.posts || [];
-  const totalViews = stats?.totalViews !== undefined ? stats.totalViews : posts.reduce((sum: number, p: any) => sum + (p.views || 0), 0);
-  const totalLikes = stats?.totalLikes !== undefined ? stats.totalLikes : posts.reduce((sum: number, p: any) => sum + (p.likes || 0), 0);
+  const isVerified = stats?.verifiedSource === true;
+  
+  const totalViews = isVerified 
+    ? (stats?.views !== null && stats?.views !== undefined ? stats.views : posts.reduce((sum: number, p: any) => sum + (p.views || 0), 0))
+    : null;
+
+  const totalLikes = isVerified 
+    ? (stats?.totalLikes !== null && stats?.totalLikes !== undefined ? stats.totalLikes : posts.reduce((sum: number, p: any) => sum + (p.likes || 0), 0))
+    : null;
+
+  const totalViewsDisplay = isVerified ? (totalViews !== null ? totalViews.toLocaleString() : "No Data Available") : "No verified data available";
+  const totalLikesDisplay = isVerified ? (totalLikes !== null ? totalLikes.toLocaleString() : "No Data Available") : "No verified data available";
 
   // Retrieve growth target values from latest daily metric in the database
   const getLatestTarget = () => {
@@ -252,20 +275,30 @@ export default function DashboardPage() {
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
         <div className="glass-panel p-6 rounded-2xl">
           <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-2">Total Reels Views</span>
-          <div className="text-3xl font-bold font-['Space_Grotesk'] text-white mb-2">{totalViews.toLocaleString()}</div>
-          <span className="text-xs text-cyan-400 font-semibold">📈 Live Database Metrics</span>
+          <div className="text-2xl font-bold font-['Space_Grotesk'] text-white mb-2">{totalViewsDisplay}</div>
+          <span className="text-xs text-cyan-400 font-semibold">
+            {stats?.graphApiActive 
+              ? "📈 Live Instagram Graph API" 
+              : (isVerified ? "⚠️ Scraped metrics (Graph API Offline)" : "❌ Unverified Source")}
+          </span>
         </div>
 
         <div className="glass-panel p-6 rounded-2xl">
           <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-2">Growth Target</span>
-          <div className="text-3xl font-bold font-['Space_Grotesk'] text-white mb-2">{targetViews.toLocaleString()}</div>
+          <div className="text-2xl font-bold font-['Space_Grotesk'] text-white mb-2">
+            {isVerified ? targetViews.toLocaleString() : "No verified data"}
+          </div>
           <span className="text-xs text-violet-400 font-semibold">Loaded from DailyMetric table</span>
         </div>
 
         <div className="glass-panel p-6 rounded-2xl">
           <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-2">Total Likes</span>
-          <div className="text-3xl font-bold font-['Space_Grotesk'] text-white mb-2">{totalLikes.toLocaleString()}</div>
-          <span className="text-xs text-slate-400">Synced from database posts</span>
+          <div className="text-2xl font-bold font-['Space_Grotesk'] text-white mb-2">{totalLikesDisplay}</div>
+          <span className="text-xs text-slate-400">
+            {stats?.graphApiActive 
+              ? "Synced from Instagram Graph API" 
+              : (isVerified ? "Scraped insights (Graph API Offline)" : "❌ Unverified Source")}
+          </span>
         </div>
 
         <div className="glass-panel p-6 rounded-2xl border-cyan-500/20 bg-gradient-to-br from-cyan-500/5 to-transparent">
