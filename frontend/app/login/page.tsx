@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Sparkles, Shield, Mail, Key, RotateCw } from "lucide-react";
-import { getApiUrl } from "../../utils/api";
+import { createClient } from "@/utils/supabase/client";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -12,6 +12,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  
+  const supabase = createClient();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -19,18 +21,16 @@ export default function LoginPage() {
     setErrorMsg(null);
 
     try {
-      const res = await fetch(`${getApiUrl()}/api/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
       });
 
-      const data = await res.json();
-      if (res.ok && data.success) {
-        localStorage.setItem("user", JSON.stringify(data.user));
-        router.push("/dashboard");
+      if (error) {
+        setErrorMsg(error.message || "Invalid credentials. Please try again.");
       } else {
-        setErrorMsg(data.error || "Invalid credentials. Please try again.");
+        localStorage.setItem("user", JSON.stringify({ email: data.user?.email }));
+        router.push("/dashboard");
       }
     } catch (err) {
       setErrorMsg("Network error: Could not connect to authentication server.");

@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Sparkles, Mail, Key, RotateCw } from "lucide-react";
-import { getApiUrl } from "../../utils/api";
+import { createClient } from "@/utils/supabase/client";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -13,10 +13,14 @@ export default function SignupPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  
+  const supabase = createClient();
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
+    setSuccessMsg(null);
 
     if (password !== confirmPassword) {
       setErrorMsg("Passwords do not match.");
@@ -26,19 +30,26 @@ export default function SignupPage() {
     setLoading(true);
 
     try {
-      const res = await fetch(`${getApiUrl()}/api/auth/register`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
       });
 
-      const data = await res.json();
-      if (res.ok && data.success) {
-        // Automatically log in on success
-        localStorage.setItem("user", JSON.stringify(data.user));
-        router.push("/dashboard");
+      if (error) {
+        setErrorMsg(error.message || "Failed to create account.");
       } else {
-        setErrorMsg(data.error || "Failed to create account.");
+        // If email confirmation is enabled, data.user will be returned but session will be null
+        if (data.user && data.user.identities && data.user.identities.length === 0) {
+          setErrorMsg("This email is already registered. Please sign in.");
+        } else if (data.session) {
+          localStorage.setItem("user", JSON.stringify({ email: data.user?.email }));
+          router.push("/dashboard");
+        } else {
+          setSuccessMsg("Account created! Please check your email for a confirmation link.");
+          setEmail("");
+          setPassword("");
+          setConfirmPassword("");
+        }
       }
     } catch (err) {
       setErrorMsg("Network error: Could not connect to authentication server.");
@@ -65,6 +76,12 @@ export default function SignupPage() {
         {errorMsg && (
           <div className="p-3 mb-5 rounded-lg border border-red-500/20 bg-red-500/10 text-red-400 text-xs">
             {errorMsg}
+          </div>
+        )}
+
+        {successMsg && (
+          <div className="p-3 mb-5 rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-400 text-xs">
+            {successMsg}
           </div>
         )}
 
