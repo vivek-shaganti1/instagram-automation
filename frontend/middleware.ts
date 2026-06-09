@@ -6,7 +6,8 @@ export async function middleware(request: NextRequest) {
     request: { headers: request.headers },
   })
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
+  const rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
+  const supabaseUrl = rawUrl.replace(/\/rest\/v1\/?$/, '')
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder'
 
   const supabase = createServerClient(

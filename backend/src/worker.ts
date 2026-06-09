@@ -72,14 +72,14 @@ export const researchWorker = new Worker(
         try {
           const getProjectRoot = () => {
             const p2 = path.resolve(__dirname, "..", "..");
-            if (fs.existsSync(path.join(p2, "main.py"))) return p2;
+            if (fs.existsSync(path.join(p2, "backend", "python", "main.py"))) return p2;
             const p3 = path.resolve(__dirname, "..", "..", "..");
-            if (fs.existsSync(path.join(p3, "main.py"))) return p3;
+            if (fs.existsSync(path.join(p3, "backend", "python", "main.py"))) return p3;
             return "/Users/vivekshaganti/Desktop/Projects/Instagram automation";
           };
           const rootDir = getProjectRoot();
           const pythonBin = path.join(rootDir, "venv", "bin", "python");
-          const researchScript = path.join(rootDir, "research_cli.py");
+          const researchScript = path.join(rootDir, "backend", "python", "research_cli.py");
 
           console.log(`Running Python news researcher: ${pythonBin} ${researchScript}`);
           const { exec } = require("child_process");

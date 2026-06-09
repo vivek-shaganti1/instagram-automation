@@ -11,7 +11,7 @@
     <array>
         <string>/bin/bash</string>
         <string>-c</string>
-        <string>cd "/Users/vivekshaganti/instagram_automation" && source venv/bin/activate && python main.py 2>> /Users/vivekshaganti/Library/Logs/instagram_automation.log</string>
+        <string>cd "/Users/vivekshaganti/instagram_automation" && source venv/bin/activate && python backend/python/main.py 2>> /Users/vivekshaganti/Library/Logs/instagram_automation.log</string>
     </array>
 
     <!-- Run every day at 6:00 AM CST = 12:00 PM UTC -->

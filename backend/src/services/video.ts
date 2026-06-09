@@ -29,14 +29,14 @@ export class VideoService {
     return new Promise((resolve, reject) => {
       const getProjectRoot = () => {
         const p2 = path.resolve(__dirname, "..", "..");
-        if (fs.existsSync(path.join(p2, "main.py"))) return p2;
+        if (fs.existsSync(path.join(p2, "backend", "python", "main.py"))) return p2;
         const p3 = path.resolve(__dirname, "..", "..", "..");
-        if (fs.existsSync(path.join(p3, "main.py"))) return p3;
+        if (fs.existsSync(path.join(p3, "backend", "python", "main.py"))) return p3;
         return "/Users/vivekshaganti/Desktop/Projects/Instagram automation";
       };
       const rootDir = getProjectRoot();
       const pythonBin = path.join(rootDir, "venv", "bin", "python");
-      const cliScript = path.join(rootDir, "render_reel_cli.py");
+      const cliScript = path.join(rootDir, "backend", "python", "render_reel_cli.py");
 
       const scriptJson = JSON.stringify(script);
       const tempScriptFile = path.join(outputDir, `script_temp_${Date.now()}.json`);
@@ -159,7 +159,7 @@ export class VideoService {
     return new Promise((resolve, reject) => {
       // Background music path: output is in backend/output/
       // assets is in the project root
-      const musicPath = path.join(path.dirname(outputPath), "..", "..", "assets", "song.mp3");
+      const musicPath = path.join(path.dirname(outputPath), "..", "..", "backend", "python", "assets", "song.mp3");
       const hasMusic = fs.existsSync(musicPath);
       console.log(`Checking background music at: ${musicPath} (Exists: ${hasMusic})`);
 

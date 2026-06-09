@@ -24,14 +24,14 @@ export class InstagramService {
 
         const getProjectRoot = () => {
           const p2 = path.resolve(__dirname, "..", "..");
-          if (require("fs").existsSync(path.join(p2, "main.py"))) return p2;
+          if (require("fs").existsSync(path.join(p2, "backend", "python", "main.py"))) return p2;
           const p3 = path.resolve(__dirname, "..", "..", "..");
-          if (require("fs").existsSync(path.join(p3, "main.py"))) return p3;
+          if (require("fs").existsSync(path.join(p3, "backend", "python", "main.py"))) return p3;
           return "/Users/vivekshaganti/Desktop/Projects/Instagram automation";
         };
         const rootDir = getProjectRoot();
         const pythonBin = path.join(rootDir, "venv", "bin", "python");
-        const uploadScript = path.join(rootDir, "upload_reel_cli.py");
+        const uploadScript = path.join(rootDir, "backend", "python", "upload_reel_cli.py");
 
         // Escape double quotes in caption for shell
         const safeCaption = caption.replace(/"/g, '\\"');
@@ -111,15 +111,15 @@ export class InstagramService {
     return new Promise((resolve) => {
       const getProjectRoot = () => {
         const p2 = path.resolve(__dirname, "..", "..");
-        if (require("fs").existsSync(path.join(p2, "sync_insights_cli.py"))) return p2;
+        if (require("fs").existsSync(path.join(p2, "backend", "python", "sync_insights_cli.py"))) return p2;
         const p3 = path.resolve(__dirname, "..", "..", "..");
-        if (require("fs").existsSync(path.join(p3, "sync_insights_cli.py"))) return p3;
+        if (require("fs").existsSync(path.join(p3, "backend", "python", "sync_insights_cli.py"))) return p3;
         return "/Users/vivekshaganti/Desktop/Projects/Instagram automation";
       };
 
       const rootDir = getProjectRoot();
       const pythonBin = path.join(rootDir, "venv", "bin", "python");
-      const syncScript = path.join(rootDir, "sync_insights_cli.py");
+      const syncScript = path.join(rootDir, "backend", "python", "sync_insights_cli.py");
 
       const cmd = `"${pythonBin}" "${syncScript}" --username "${username}" --password "${password}"`;
       console.log(`[syncAnalytics] Running command: ${cmd}`);
