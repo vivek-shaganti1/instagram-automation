@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { createClient } from "@/utils/supabase/server";
+import { ACCESS_DENIED_MESSAGE, isEmailAllowed } from "@/utils/access";
 
 // Handles every Supabase email link (signup confirmation, magic link,
 // password recovery, email change). Supports both the PKCE `?code=` flow and
@@ -25,6 +26,14 @@ export async function GET(request: Request) {
     errorMessage = error?.message ?? null;
   } else {
     errorMessage = "Missing confirmation code.";
+  }
+
+  if (!errorMessage) {
+    const { data } = await supabase.auth.getUser();
+    if (!isEmailAllowed(data.user?.email)) {
+      await supabase.auth.signOut();
+      errorMessage = ACCESS_DENIED_MESSAGE;
+    }
   }
 
   if (errorMessage) {

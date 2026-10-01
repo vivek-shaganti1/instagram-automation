@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { RotateCw } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 import { friendlyAuthError } from "@/utils/auth-errors";
+import { ACCESS_DENIED_MESSAGE, isEmailAllowed } from "@/utils/access";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -19,6 +20,10 @@ export default function SignupPage() {
     e.preventDefault();
     setError(null);
     setMessage(null);
+    if (!isEmailAllowed(email)) {
+      setError(ACCESS_DENIED_MESSAGE);
+      return;
+    }
     if (password.length < 6) {
       setError("Password must be at least 6 characters.");
       return;
@@ -52,7 +57,8 @@ export default function SignupPage() {
   return (
     <div className="flex items-center justify-center min-h-[80vh] px-4">
       <form onSubmit={handleSignup} className="p-8 bg-slate-900 rounded-xl shadow-2xl w-full max-w-sm border border-slate-800">
-        <h1 className="text-2xl font-bold mb-6 text-white text-center">Sign Up</h1>
+        <h1 className="text-2xl font-bold mb-2 text-white text-center">Sign Up</h1>
+        <p className="text-slate-400 text-xs text-center mb-6">Access is invite-only. Only the administrator account can register.</p>
         {error && <div className="mb-4 text-red-400 text-sm text-center">{error}</div>}
         {message && <div className="mb-4 text-emerald-400 text-sm text-center">{message}</div>}
         <input

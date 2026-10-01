@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/utils/supabase/client";
+import { isEmailAllowed } from "@/utils/access";
 
 // Tracks the Supabase session on the client. The middleware is the real gate
 // for protected routes; this just gives pages the user object and keeps the UI
@@ -20,7 +21,7 @@ export function useUser() {
       .getUser()
       .then(({ data }) => {
         if (!active) return;
-        setUser(data.user ?? null);
+        setUser(data.user && isEmailAllowed(data.user.email) ? data.user : null);
         setLoading(false);
       })
       .catch(() => {
@@ -31,7 +32,8 @@ export function useUser() {
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!active) return;
-      setUser(session?.user ?? null);
+      const u = session?.user ?? null;
+      setUser(u && isEmailAllowed(u.email) ? u : null);
       setLoading(false);
     });
 

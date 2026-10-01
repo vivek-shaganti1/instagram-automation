@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseAnonKey, getSupabaseUrl } from "./env";
+import { ACCESS_DENIED_MESSAGE, isEmailAllowed } from "@/utils/access";
 
 const PROTECTED_PREFIXES = ["/dashboard", "/analytics", "/settings", "/library", "/admin"];
 const AUTH_PAGES = ["/login", "/signup"];
@@ -26,15 +27,30 @@ export async function updateSession(request: NextRequest) {
   // IMPORTANT: no code between createServerClient and getClaims — it refreshes
   // the session cookie and anything in between can cause random logouts.
   let isAuthenticated = false;
+  let email: string | undefined;
   try {
     const { data } = await supabase.auth.getClaims();
     isAuthenticated = !!data?.claims;
+    email = (data?.claims as { email?: string } | undefined)?.email;
   } catch (error) {
     // Supabase unreachable (e.g. project paused). Treat as signed out.
     console.error("Middleware: Supabase auth check failed:", error);
   }
 
   const { pathname } = request.nextUrl;
+
+  // Signed in but not on the allowlist: end the session and explain why.
+  if (isAuthenticated && !isEmailAllowed(email)) {
+    await supabase.auth.signOut();
+    const url = request.nextUrl.clone();
+    url.pathname = "/login";
+    url.search = "";
+    url.searchParams.set("error", ACCESS_DENIED_MESSAGE);
+    const denied = NextResponse.redirect(url);
+    // Carry over the cleared auth cookies from signOut.
+    supabaseResponse.cookies.getAll().forEach((c) => denied.cookies.set(c));
+    return denied;
+  }
   const isProtected = PROTECTED_PREFIXES.some((p) => pathname.startsWith(p));
   const isAuthPage = AUTH_PAGES.some((p) => pathname.startsWith(p));
 

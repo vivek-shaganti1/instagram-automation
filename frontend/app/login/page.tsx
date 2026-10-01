@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { RotateCw } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 import { friendlyAuthError } from "@/utils/auth-errors";
+import { ACCESS_DENIED_MESSAGE, isEmailAllowed } from "@/utils/access";
 
 function LoginForm() {
   const router = useRouter();
@@ -19,6 +20,10 @@ function LoginForm() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    if (!isEmailAllowed(email)) {
+      setError(ACCESS_DENIED_MESSAGE);
+      return;
+    }
     setLoading(true);
     try {
       const supabase = createClient();
