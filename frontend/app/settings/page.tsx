@@ -26,15 +26,15 @@ export default function SettingsPage() {
 
   // Fetch settings from database on mount
   useEffect(() => {
-    const cachedUser = localStorage.getItem("user");
-    if (!cachedUser) {
-      router.push("/login");
-      return;
-    }
     fetch(getApiUrl("/api/settings"))
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to load settings");
-        return res.json();
+      .then(async (res) => {
+        if (res.status === 401) {
+          router.push("/login?next=/settings");
+          throw new Error("Not authenticated");
+        }
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.details ? `${data.error} — ${data.details}` : (data.error || "Failed to load settings"));
+        return data;
       })
       .then((data) => {
         setCredentials({
@@ -53,7 +53,9 @@ export default function SettingsPage() {
       })
       .catch((err) => {
         console.error(err);
-        setErrorMessage("Could not load settings from database.");
+        if (err?.message !== "Not authenticated") {
+          setErrorMessage(err?.message || "Could not load settings from database.");
+        }
         setLoading(false);
       });
   }, []);
@@ -70,12 +72,12 @@ export default function SettingsPage() {
         body: JSON.stringify(credentials),
       });
 
-      const data = await res.json();
-      if (data.success) {
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), 4000);
       } else {
-        setErrorMessage(data.error || "Failed to update configurations.");
+        setErrorMessage(data.details ? `${data.error} — ${data.details}` : (data.error || "Failed to update configurations."));
       }
     } catch (err) {
       setErrorMessage("Network error: Could not connect to backend server.");

@@ -63,8 +63,19 @@ function checkRedisReachable(host: string, port: number, timeoutMs = 1000): Prom
   });
 }
 
+// Comma-separated list of allowed origins, e.g.
+// FRONTEND_URL="https://instagram-automation-phi.vercel.app,http://localhost:3000"
+const allowedOrigins = (process.env.FRONTEND_URL || "http://localhost:3000")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || "http://localhost:3000",
+  origin: (origin, cb) => {
+    // Server-to-server calls (the Vercel /api proxy) have no Origin header.
+    if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+    cb(new Error(`Origin ${origin} not allowed by CORS`));
+  },
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   credentials: true
 }));
@@ -128,6 +139,7 @@ app.get("/api/health", async (req, res) => {
     res.json({
       status: dbStatus === "connected" && redisConnected ? "healthy" : "degraded",
       timestamp: new Date().toISOString(),
+      workerDeployed: true,
       redis: {
         host: redisHost,
         port: redisPort,

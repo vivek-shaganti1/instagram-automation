@@ -4,14 +4,8 @@ const path = require('path');
 const nextConfig = {
   reactStrictMode: true,
   outputFileTracingRoot: path.join(__dirname, '..'),
-  async rewrites() {
-    return [
-      {
-        source: '/api/:path*',
-        destination: `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/:path*`,
-      },
-    ];
-  },
+  // /api/* is served by app/api/[...path]/route.ts, which proxies to the
+  // worker when BACKEND_URL is set and reads Supabase directly otherwise.
 };
 
 module.exports = nextConfig;

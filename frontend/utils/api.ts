@@ -1,8 +1,5 @@
+// All API calls go through this app's own /api routes (same origin), which
+// handle auth and talk to Supabase or the optional worker backend.
 export function getApiUrl(path: string = ""): string {
-  if (typeof window !== "undefined") {
-    // Relative paths work perfectly on client side due to next.config.js rewrites
-    return path;
-  }
-  const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-  return `${base}${path}`;
+  return path;
 }

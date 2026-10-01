@@ -3,7 +3,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Sparkles, Mail, RotateCw, CheckCircle2 } from "lucide-react";
-import { getApiUrl } from "@/utils/api";
+import { createClient } from "@/utils/supabase/client";
+import { friendlyAuthError } from "@/utils/auth-errors";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -18,20 +19,19 @@ export default function ForgotPasswordPage() {
     setSuccessMsg(null);
 
     try {
-      const res = await fetch(getApiUrl("/api/auth/forgot-password"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+      const supabase = createClient();
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/auth/callback?next=/reset-password`,
       });
-
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setSuccessMsg(data.message);
-      } else {
-        setErrorMsg(data.error || "Failed to process password recovery.");
+      if (error) {
+        setErrorMsg(friendlyAuthError(error));
+        return;
       }
+      setSuccessMsg(
+        `If an account exists for ${email}, a password reset link is on its way. Open it to choose a new password.`
+      );
     } catch (err) {
-      setErrorMsg("Network error: Could not connect to authentication server.");
+      setErrorMsg(friendlyAuthError(err));
     } finally {
       setLoading(false);
     }
@@ -40,7 +40,7 @@ export default function ForgotPasswordPage() {
   return (
     <div className="min-h-[80vh] flex items-center justify-center px-6 py-12 relative">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_40%,rgba(168,85,247,0.06)_0%,transparent_50%)] pointer-events-none" />
-      
+
       <div className="glass-panel p-8 rounded-2xl w-full max-w-md relative z-10 border border-white/[0.08]">
         {/* Header */}
         <div className="text-center mb-8">
@@ -49,7 +49,7 @@ export default function ForgotPasswordPage() {
             <span>Reset Password</span>
           </div>
           <h2 className="font-['Space_Grotesk'] text-2xl font-bold text-white mb-2">Recover Password</h2>
-          <p className="text-slate-400 text-xs font-light">We will lookup your account and output your simulated recovery instructions.</p>
+          <p className="text-slate-400 text-xs font-light">Enter your email and we&apos;ll send you a link to reset your password.</p>
         </div>
 
         {errorMsg && (
@@ -61,7 +61,7 @@ export default function ForgotPasswordPage() {
         {successMsg ? (
           <div className="text-center py-4">
             <CheckCircle2 className="w-12 h-12 text-green-400 mx-auto mb-4" />
-            <h4 className="font-semibold text-white text-sm mb-2">Simulated Reset Successful</h4>
+            <h4 className="font-semibold text-white text-sm mb-2">Check your inbox</h4>
             <p className="text-slate-300 text-xs mb-6 px-2 leading-relaxed">{successMsg}</p>
             <Link href="/login" className="px-6 py-2.5 bg-white text-[#050816] rounded-lg text-xs font-bold transition hover:bg-slate-200">
               Return to Login
@@ -73,9 +73,10 @@ export default function ForgotPasswordPage() {
               <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block mb-2">Email Address</label>
               <div className="relative">
                 <Mail className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-500" />
-                <input 
-                  type="email" 
+                <input
+                  type="email"
                   required
+                  autoComplete="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full bg-white/5 border border-white/10 rounded-lg py-3 pl-10 pr-4 text-slate-300 text-sm focus:border-violet-500/50 outline-none transition"
@@ -84,18 +85,18 @@ export default function ForgotPasswordPage() {
               </div>
             </div>
 
-            <button 
+            <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 mt-2 rounded-xl font-semibold bg-white text-[#050816] hover:bg-slate-200 transition text-xs flex items-center justify-center gap-2 shadow-lg"
+              className="w-full py-3 mt-2 rounded-xl font-semibold bg-white text-[#050816] hover:bg-slate-200 transition text-xs flex items-center justify-center gap-2 shadow-lg disabled:opacity-60"
             >
               {loading ? (
                 <>
                   <RotateCw className="w-3.5 h-3.5 animate-spin" />
-                  <span>Checking Email...</span>
+                  <span>Sending link...</span>
                 </>
               ) : (
-                <span>Request Recovery</span>
+                <span>Send Reset Link</span>
               )}
             </button>
           </form>

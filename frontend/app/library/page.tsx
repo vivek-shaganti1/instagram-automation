@@ -9,22 +9,27 @@ export default function LibraryPage() {
   const router = useRouter();
   const [reels, setReels] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const cachedUser = localStorage.getItem("user");
-    if (!cachedUser) {
-      router.push("/login");
-      return;
-    }
-
     fetch(getApiUrl("/api/stats"))
-      .then(res => res.json())
-      .then(data => {
+      .then(async (res) => {
+        if (res.status === 401) {
+          router.push("/login?next=/library");
+          return null;
+        }
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.details ? `${data.error} — ${data.details}` : (data.error || "Failed to load library"));
+        return data;
+      })
+      .then((data) => {
+        if (!data) return;
         setReels(data.posts || []);
         setLoading(false);
       })
-      .catch(e => {
+      .catch((e) => {
         console.error(e);
+        setError(e?.message || "Failed to load library");
         setLoading(false);
       });
   }, []);
@@ -46,7 +51,12 @@ export default function LibraryPage() {
         <p className="text-slate-400 text-sm font-light">Browse, review, and preview your generated and published Reels.</p>
       </div>
 
-      {reels.length === 0 ? (
+      {error ? (
+        <div className="p-6 bg-red-950/50 border border-red-500/50 rounded-2xl text-center">
+          <AlertTriangle className="w-6 h-6 text-red-400 mx-auto mb-2" />
+          <p className="text-red-300 text-sm">{error}</p>
+        </div>
+      ) : reels.length === 0 ? (
         <div className="glass-panel p-12 text-center text-slate-400 font-light rounded-2xl">
           No content generated yet. Open the Dashboard to trigger your first run.
         </div>

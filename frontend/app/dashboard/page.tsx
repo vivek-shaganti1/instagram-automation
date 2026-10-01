@@ -4,9 +4,20 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Play, RotateCw, Sparkles, TrendingUp, CheckCircle, Clock, LogOut, BarChart3, LineChart, Target, Eye, Bookmark, Flame, Zap, Calendar, Award, Activity, ShieldAlert, Cpu, Server, Database } from "lucide-react";
 import { getApiUrl } from "../../utils/api";
+import { useSignOut, useUser } from "@/utils/use-user";
+
+// Reads the JSON body and surfaces a readable error for non-2xx responses,
+// including the "worker offline" 503 our API returns when the backend isn't deployed.
+async function readJson(res: Response) {
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok && !data.error) data.error = `${res.status} ${res.statusText}`;
+  return data;
+}
 
 export default function DashboardPage() {
   const router = useRouter();
+  const { user, loading: userLoading } = useUser();
+  const signOut = useSignOut();
   const [stats, setStats] = useState<any>(null);
   const [insights, setInsights] = useState<any>(null);
   const [health, setHealth] = useState<any>(null);
@@ -17,24 +28,25 @@ export default function DashboardPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [backendError, setBackendError] = useState<string | null>(null);
-  const [userEmail, setUserEmail] = useState("");
+  const userEmail = user?.email ?? "";
 
   const fetchStats = async () => {
     try {
       setBackendError(null);
       const res = await fetch(`${getApiUrl()}/api/stats`);
-      if (!res.ok) throw new Error(`Backend Error /api/stats: ${res.statusText}`);
-      const data = await res.json();
+      if (res.status === 401) { router.push("/login?next=/dashboard"); return; }
+      const data = await readJson(res);
+      if (!res.ok) throw new Error(data.details ? `${data.error} — ${data.details}` : data.error);
       setStats(data);
       
       const insightsRes = await fetch(`${getApiUrl()}/api/strategist-insights`);
-      if (!insightsRes.ok) throw new Error(`Backend Error /api/strategist-insights: ${insightsRes.statusText}`);
-      const insightsData = await insightsRes.json();
+      const insightsData = await readJson(insightsRes);
+      if (!insightsRes.ok) throw new Error(insightsData.error);
       setInsights(insightsData);
 
       const healthRes = await fetch(`${getApiUrl()}/api/health`);
-      if (!healthRes.ok) throw new Error(`Backend Error /api/health: ${healthRes.statusText}`);
-      const healthData = await healthRes.json();
+      const healthData = await readJson(healthRes);
+      if (!healthRes.ok) throw new Error(healthData.error);
       setHealth(healthData);
 
       try {
@@ -69,7 +81,7 @@ export default function DashboardPage() {
     setMessage("Initiating automated production database and asset backup...");
     try {
       const res = await fetch(`${getApiUrl()}/api/run-backup`, { method: "POST" });
-      const data = await res.json();
+      const data = await readJson(res);
       if (data.success) {
         setMessage("Database and assets backed up successfully!");
         fetchStats();
@@ -89,7 +101,7 @@ export default function DashboardPage() {
     setMessage("Running autonomous stress testing & validation audit...");
     try {
       const res = await fetch(`${getApiUrl()}/api/run-stress-test`, { method: "POST" });
-      const data = await res.json();
+      const data = await readJson(res);
       if (data.success) {
         setMessage("Stress test completed successfully!");
         fetchStats();
@@ -105,47 +117,35 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
-    let mounted = true;
-    let timeoutId: NodeJS.Timeout;
-
-    const cachedUser = localStorage.getItem("user");
-    if (!cachedUser || cachedUser === "undefined") {
-      router.push("/login");
+    // The middleware guarantees a session here; wait for the client to confirm
+    // the user before polling so we don't fire requests during sign-out.
+    if (userLoading) return;
+    if (!user) {
+      router.push("/login?next=/dashboard");
       return;
     }
+
+    let mounted = true;
+    let timeoutId: ReturnType<typeof setTimeout>;
 
     const poll = async () => {
       if (!mounted) return;
       await fetchStats();
       if (mounted) {
-        timeoutId = setTimeout(poll, 5000);
+        timeoutId = setTimeout(poll, 15000);
       }
     };
-
-    try {
-      const parsed = JSON.parse(cachedUser);
-      if (parsed && parsed.email) {
-        setUserEmail(parsed.email);
-        poll();
-      } else {
-        localStorage.removeItem("user");
-        router.push("/login");
-      }
-    } catch (e) {
-      console.error("Failed to parse user session JSON:", e);
-      localStorage.removeItem("user");
-      router.push("/login");
-    }
+    poll();
 
     return () => {
       mounted = false;
       clearTimeout(timeoutId);
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, userLoading]);
 
   const handleLogout = () => {
-    localStorage.removeItem("user");
-    router.push("/login");
+    signOut();
   };
 
   const triggerPost = async (category: string) => {
@@ -157,7 +157,7 @@ export default function DashboardPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ category }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (data.success) {
         setMessage(`Success! Job queued. Job ID: ${data.jobId}`);
         fetchStats();
@@ -177,12 +177,12 @@ export default function DashboardPage() {
     setMessage("Syncing metrics with Instagram Graph API...");
     try {
       const res = await fetch(`${getApiUrl()}/api/sync-stats`, { method: "POST" });
-      const data = await res.json();
+      const data = await readJson(res);
       if (data.success) {
         setMessage("Instagram stats synced successfully!");
         fetchStats();
       } else {
-        setMessage("Failed to sync insights.");
+        setMessage(data.error || "Failed to sync insights.");
       }
     } catch (e) {
       setMessage("Failed to connect to backend server.");
@@ -192,7 +192,7 @@ export default function DashboardPage() {
     }
   };
 
-  if (loading) {
+  if (loading || userLoading) {
     return (
       <div className="py-20 text-center text-slate-400 font-light">
         <RotateCw className="w-8 h-8 animate-spin mx-auto mb-4 text-violet-500" />
@@ -238,8 +238,22 @@ export default function DashboardPage() {
       {backendError && (
         <div className="mb-8 p-4 bg-red-950/50 border border-red-500/50 rounded-xl flex flex-col items-center justify-center text-center">
           <ShieldAlert className="w-8 h-8 text-red-500 mb-2" />
-          <h3 className="text-red-400 font-bold mb-1">Backend Connection Failed</h3>
+          <h3 className="text-red-400 font-bold mb-1">Data Connection Failed</h3>
           <p className="text-red-300 text-sm">{backendError}</p>
+        </div>
+      )}
+
+      {!backendError && health?.workerDeployed === false && (
+        <div className="mb-8 p-4 bg-amber-950/40 border border-amber-500/40 rounded-xl flex items-start gap-3">
+          <Server className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+          <div className="text-sm">
+            <span className="text-amber-300 font-semibold">Automation worker offline.</span>{" "}
+            <span className="text-amber-200/80">
+              Stats and settings are live from the database, but generating Reels and syncing Instagram insights
+              need the backend worker (Redis + FFmpeg). Deploy <code className="font-mono text-xs">backend/</code> and set{" "}
+              <code className="font-mono text-xs">BACKEND_URL</code> on Vercel to enable those actions.
+            </span>
+          </div>
         </div>
       )}
 
