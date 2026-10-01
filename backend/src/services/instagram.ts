@@ -1,8 +1,7 @@
 import axios from "axios";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../db";
 import path from "path";
 
-const prisma = new PrismaClient();
 
 export class InstagramService {
   async postReel(videoPath: string, caption: string, reelId?: string): Promise<string> {
@@ -35,19 +34,24 @@ export class InstagramService {
 
         // Escape double quotes in caption for shell
         const safeCaption = caption.replace(/"/g, '\\"');
-        const cmd = `"${pythonBin}" "${uploadScript}" --video "${videoPath}" --caption "${safeCaption}" --username "${username}" --password "${password}"`;
-        
-        require("child_process").exec(cmd, { cwd: rootDir, timeout: 300000, killSignal: 'SIGKILL' }, (error: any, stdout: string, stderr: string) => {
-          if (error) {
-             console.error("[Instagrapi] Error:", stderr || error.message);
-             return reject(new Error(`Instagrapi Upload failed: ${stderr || error.message}`));
-          }
+        // Credentials go through the environment, never argv: argv shows up in
+        // `ps`, in exec error messages, and from there in logs and the DB.
+        const cmd = `"${pythonBin}" "${uploadScript}" --video "${videoPath}" --caption "${safeCaption}"`;
+        const env = { ...process.env, IG_USERNAME: username || "", IG_PASSWORD: password || "" };
+
+        require("child_process").exec(cmd, { cwd: rootDir, env, timeout: 300000, killSignal: 'SIGKILL' }, (error: any, stdout: string, stderr: string) => {
           const match = stdout.match(/UPLOAD_SUCCESS:(.*)/);
           if (match) {
              console.log(`[InstagramService] Instagrapi Upload Successful. Media ID: ${match[1]}`);
              return resolve(match[1].trim());
           }
-          return reject(new Error(`Instagrapi Upload failed: ${stdout}`));
+          // The script reports the real reason on stdout as UPLOAD_ERROR:<msg>.
+          const reason =
+            stdout.match(/UPLOAD_ERROR:(.*)/)?.[1]?.trim() ||
+            (error?.killed ? "Upload timed out after 5 minutes" : (stderr || "").trim().split("\n").pop()) ||
+            "Unknown upload error";
+          console.error("[Instagrapi] Upload failed:", reason);
+          return reject(new Error(`Instagrapi upload failed: ${reason}`));
         });
       });
     }
@@ -121,10 +125,11 @@ export class InstagramService {
       const pythonBin = path.join(rootDir, "venv", "bin", "python");
       const syncScript = path.join(rootDir, "backend", "python", "sync_insights_cli.py");
 
-      const cmd = `"${pythonBin}" "${syncScript}" --username "${username}" --password "${password}"`;
+      const cmd = `"${pythonBin}" "${syncScript}"`;
       console.log(`[syncAnalytics] Running command: ${cmd}`);
 
-      require("child_process").exec(cmd, { cwd: rootDir, timeout: 120000 }, async (error: any, stdout: string, stderr: string) => {
+      const env = { ...process.env, IG_USERNAME: username || "", IG_PASSWORD: password || "" };
+      require("child_process").exec(cmd, { cwd: rootDir, env, timeout: 120000 }, async (error: any, stdout: string, stderr: string) => {
         if (error) {
           console.warn("[syncAnalytics] Python script failed with error. Falling back to parsing stdout if available.", error.message);
         }

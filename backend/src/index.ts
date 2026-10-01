@@ -3,7 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import path from "path";
 import net from "net";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "./db";
 import { InstagramService } from "./services/instagram";
 import { workerStatuses } from "./worker"; // Start worker process in same runtime for convenience
 import "./cron";   // Start cron scheduler
@@ -21,7 +21,7 @@ import {
 dotenv.config();
 
 const app = express();
-const prisma = new PrismaClient();
+
 const instagramService = new InstagramService();
 
 const PORT = process.env.PORT || 8000;
@@ -438,7 +438,7 @@ app.post("/api/post-now", async (req, res) => {
       }
     });
 
-    let jobId = "mock-job-" + Date.now();
+    let jobId = "manual-" + Date.now();
     try {
       const addPromise = researchQueue.add(
         "manual-post-job",
@@ -492,6 +492,7 @@ app.get("/api/settings", async (req, res) => {
       igPassword: settingsMap["instagram_password"] || "••••••••",
       igHandle: settingsMap["instagram_handle"] || "",
       geminiKey: settingsMap["google_ai_api_key"] || "",
+      groqKey: settingsMap["groq_api_key"] || "",
       elevenLabsKey: settingsMap["elevenlabs_api_key"] || "",
       pexelsKey: settingsMap["pexels_api_key"] || "",
       targetBaseline: settingsMap["target_baseline"] || "100",
@@ -512,6 +513,7 @@ app.post("/api/settings", async (req, res) => {
       igPassword,
       igHandle,
       geminiKey,
+      groqKey,
       elevenLabsKey,
       pexelsKey,
       targetBaseline,
@@ -525,6 +527,7 @@ app.post("/api/settings", async (req, res) => {
       { key: "instagram_password", value: igPassword },
       { key: "instagram_handle", value: igHandle },
       { key: "google_ai_api_key", value: geminiKey },
+      { key: "groq_api_key", value: groqKey },
       { key: "elevenlabs_api_key", value: elevenLabsKey },
       { key: "pexels_api_key", value: pexelsKey },
       { key: "target_baseline", value: targetBaseline },

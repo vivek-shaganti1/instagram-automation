@@ -1,8 +1,9 @@
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../db";
 import { groqRequest } from "./groqClient";
+import { getAiKeys } from "./aiKeys";
 import { TrendService } from "./trends";
 
-const prisma = new PrismaClient();
+
 const trendService = new TrendService();
 
 export interface SlideContent {
@@ -51,9 +52,7 @@ export class AIService {
   constructor() {}
 
   async generateScript(category: string, aggressiveHooks: boolean = false, story?: any): Promise<GeneratedScript> {
-    const apiKeySetting = await prisma.settings.findUnique({ where: { key: "google_ai_api_key" } });
-    const groqKeySetting = await prisma.settings.findUnique({ where: { key: "groq_api_key" } });
-    const apiKey = apiKeySetting?.value || groqKeySetting?.value || process.env.GROQ_API_KEY || process.env.GOOGLE_AI_API_KEY || "";
+    const { textKey: apiKey } = await getAiKeys();
 
     if (!apiKey) {
       throw new Error("AI API key not configured. Cannot generate script.");
@@ -195,7 +194,7 @@ export class AIService {
         }
         `;
 
-        const conceptRes = await groqRequest<{ concepts: any[] }>(conceptsPrompt, "llama-3.3-70b-versatile");
+        const conceptRes = await groqRequest<{ concepts: any[] }>(conceptsPrompt);
         if (!conceptRes || !conceptRes.concepts || conceptRes.concepts.length === 0) {
           throw new Error("Failed to generate concepts structure");
         }
@@ -244,7 +243,7 @@ export class AIService {
         }
         `;
 
-        const hookRes = await groqRequest<{ hooks: any[] }>(hookPrompt, "llama-3.3-70b-versatile");
+        const hookRes = await groqRequest<{ hooks: any[] }>(hookPrompt);
         if (!hookRes || !hookRes.hooks || hookRes.hooks.length === 0) {
           throw new Error("Failed to generate hooks list");
         }
@@ -278,7 +277,7 @@ export class AIService {
           Return ONLY: { "similarityScore": 45, "reason": "reason" }
           `;
 
-          const simRes = await groqRequest<{ similarityScore: number; reason: string }>(similarityPrompt, "llama-3.3-70b-versatile");
+          const simRes = await groqRequest<{ similarityScore: number; reason: string }>(similarityPrompt);
           maxSimilarity = simRes?.similarityScore || 0;
           console.log(`Strategist Similarity check: ${maxSimilarity}% (${simRes?.reason || 'no reason'})`);
         }
@@ -345,7 +344,7 @@ export class AIService {
         }
         `;
 
-        const scriptData = await groqRequest<GeneratedScript>(finalPrompt, "llama-3.3-70b-versatile");
+        const scriptData = await groqRequest<GeneratedScript>(finalPrompt);
         if (scriptData && scriptData.slides && scriptData.slides.length > 0) {
           scriptData.theme = selectedTheme;
           scriptData.style_type = selectedLayout;

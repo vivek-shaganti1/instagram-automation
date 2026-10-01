@@ -1,5 +1,5 @@
 """
-Image generator: uses Google Imagen 3 via the new google-genai SDK
+Image generator: uses Gemini native image models via the google-genai SDK
 to generate background images for each slide.
 """
 import time
@@ -10,6 +10,8 @@ import io
 from src.utils import get_logger
 
 logger = get_logger("image_generator")
+
+IMAGE_MODELS = ["gemini-2.5-flash-image", "gemini-3.1-flash-image"]
 
 
 class ImageGenerator:
@@ -88,29 +90,33 @@ class ImageGenerator:
         try:
             from google.genai import types as genai_types
 
-            response = client.models.generate_images(
-                model="imagen-4.0-generate-001",
-                prompt=prompt,
-                config=genai_types.GenerateImagesConfig(
-                    number_of_images=1,
-                    aspect_ratio="1:1",
-                    output_mime_type="image/png",
-                    person_generation="dont_allow",
-                ),
-            )
+            # Imagen isn't available on AI Studio keys anymore; Gemini's native
+            # image models are. Try them in order, keep the first image returned.
+            for model in IMAGE_MODELS:
+                try:
+                    response = client.models.generate_content(
+                        model=model,
+                        contents=prompt,
+                        config=genai_types.GenerateContentConfig(
+                            response_modalities=["IMAGE"],
+                            image_config=genai_types.ImageConfig(aspect_ratio="1:1"),
+                        ),
+                    )
+                except Exception as model_err:
+                    logger.warning(f"{model} image generation failed: {model_err}")
+                    continue
 
-            if response.generated_images:
-                img_data = response.generated_images[0].image.image_bytes
-                img = Image.open(io.BytesIO(img_data)).convert("RGBA")
-                img = img.resize((1080, 1080), Image.LANCZOS)
-                img.save(output_path, "PNG")
-                logger.info(f"Imagen 3 image saved: {output_path.name}")
-                return output_path
-            else:
-                logger.warning("Imagen 3 returned no images")
+                for part in (response.candidates[0].content.parts if response.candidates else []):
+                    if getattr(part, "inline_data", None) and part.inline_data.data:
+                        img = Image.open(io.BytesIO(part.inline_data.data)).convert("RGBA")
+                        img = img.resize((1080, 1080), Image.LANCZOS)
+                        img.save(output_path, "PNG")
+                        logger.info(f"{model} image saved: {output_path.name}")
+                        return output_path
+                logger.warning(f"{model} returned no image")
 
         except Exception as e:
-            logger.warning(f"Imagen 3 generation failed: {e}. Using gradient fallback.")
+            logger.warning(f"Image generation failed: {e}. Using gradient fallback.")
 
         return self._generate_gradient_fallback(slide_type, output_path)
 

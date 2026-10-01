@@ -1,3 +1,4 @@
+import os
 import sys
 import argparse
 from instagrapi import Client
@@ -6,14 +7,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--video", required=True)
     parser.add_argument("--caption", required=True)
-    parser.add_argument("--username", required=True)
-    parser.add_argument("--password", required=True)
+    parser.add_argument("--username", default=os.environ.get("IG_USERNAME"))
+    parser.add_argument("--password", default=os.environ.get("IG_PASSWORD"))
     args = parser.parse_args()
 
     try:
         cl = Client()
         session_file = "instagram_session.json"
-        import os
         if os.path.exists(session_file):
             cl.load_settings(session_file)
         

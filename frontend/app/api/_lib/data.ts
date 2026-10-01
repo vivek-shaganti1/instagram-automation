@@ -74,6 +74,7 @@ const SETTINGS_KEYS: Record<string, string> = {
   igPassword: "instagram_password",
   igHandle: "instagram_handle",
   geminiKey: "google_ai_api_key",
+  groqKey: "groq_api_key",
   elevenLabsKey: "elevenlabs_api_key",
   pexelsKey: "pexels_api_key",
   targetBaseline: "target_baseline",

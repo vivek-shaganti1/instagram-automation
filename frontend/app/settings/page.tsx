@@ -18,6 +18,7 @@ export default function SettingsPage() {
     igAccountId: "",
     igHandle: "",
     geminiKey: "",
+    groqKey: "",
     elevenLabsKey: "",
     pexelsKey: "",
     targetBaseline: "100",
@@ -44,6 +45,7 @@ export default function SettingsPage() {
           igAccountId: data.igAccountId || "",
           igHandle: data.igHandle || "",
           geminiKey: data.geminiKey || "",
+          groqKey: data.groqKey || "",
           elevenLabsKey: data.elevenLabsKey || "",
           pexelsKey: data.pexelsKey || "",
           targetBaseline: data.targetBaseline || "100",
@@ -117,13 +119,23 @@ export default function SettingsPage() {
           </div>
           <div className="grid sm:grid-cols-2 gap-5">
             <div>
-              <label className="text-xs font-semibold text-slate-300 block mb-2">Groq / Gemini API Key</label>
+              <label className="text-xs font-semibold text-slate-300 block mb-2">Groq API Key <span className="text-slate-500 font-normal">(scripts &amp; research)</span></label>
+              <input 
+                type="password" 
+                value={credentials.groqKey}
+                onChange={(e) => setCredentials({ ...credentials, groqKey: e.target.value })}
+                className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-slate-300 text-sm focus:border-violet-500/50 outline-none"
+                placeholder="gsk_..."
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-300 block mb-2">Gemini API Key <span className="text-slate-500 font-normal">(slide images, text fallback)</span></label>
               <input 
                 type="password" 
                 value={credentials.geminiKey}
                 onChange={(e) => setCredentials({ ...credentials, geminiKey: e.target.value })}
                 className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-slate-300 text-sm focus:border-violet-500/50 outline-none"
-                placeholder="Paste API Key (gsk_... or AIza...)"
+                placeholder="AIza... or AQ..."
               />
             </div>
             <div>

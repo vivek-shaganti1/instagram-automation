@@ -1,5 +1,6 @@
+import { getAiKeys } from "./services/aiKeys";
 import { Worker, Job } from "bullmq";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "./db";
 import { AIService } from "./services/ai";
 import { VideoService } from "./services/video";
 import { InstagramService } from "./services/instagram";
@@ -16,7 +17,7 @@ import {
 import path from "path";
 import fs from "fs";
 
-const prisma = new PrismaClient();
+
 const aiService = new AIService();
 const videoService = new VideoService();
 const instagramService = new InstagramService();
@@ -83,8 +84,7 @@ export const researchWorker = new Worker(
 
           console.log(`Running Python news researcher: ${pythonBin} ${researchScript}`);
           const { exec } = require("child_process");
-          const apiKeySetting = await prisma.settings.findUnique({ where: { key: "google_ai_api_key" } });
-          const apiKey = apiKeySetting?.value || "";
+          const { textKey: apiKey } = await getAiKeys();
 
           const stdout = await new Promise<string>((resolve, reject) => {
             exec(`"${pythonBin}" "${researchScript}" "${apiKey}"`, { cwd: rootDir, encoding: "utf8" }, (err: any, out: string) => {

@@ -21,7 +21,9 @@ export async function proxyToBackend(request: Request, path: string): Promise<Ne
   const init: RequestInit = {
     method: request.method,
     headers: { "Content-Type": request.headers.get("content-type") || "application/json" },
-    signal: AbortSignal.timeout(15000),
+    // Reads are quick; actions (sync, post-now, backups) shell out to Python
+    // and log in to Instagram, which routinely takes 20-60s.
+    signal: AbortSignal.timeout(request.method === "GET" ? 15000 : 90000),
   };
   if (request.method !== "GET" && request.method !== "HEAD") {
     init.body = await request.text();

@@ -1,9 +1,9 @@
 import cron from "node-cron";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "./db";
 import { InstagramService } from "./services/instagram";
 import { researchQueue } from "./services/queues";
 
-const prisma = new PrismaClient();
+
 const instagramService = new InstagramService();
 
 // Helper to determine if we should execute aggressive hooks

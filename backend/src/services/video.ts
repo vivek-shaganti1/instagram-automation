@@ -1,11 +1,9 @@
+import { getAiKeys } from "./aiKeys";
 import axios from "axios";
 import fs from "fs";
 import path from "path";
 import ffmpeg from "fluent-ffmpeg";
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
-
+import { prisma } from "../db";
 export class VideoService {
   private pexelsApiKey: string;
   private elevenLabsApiKey: string;
@@ -20,8 +18,8 @@ export class VideoService {
     const outputPath = path.join(outputDir, filename);
 
     // Retrieve settings from database
-    const apiKeySetting = await prisma.settings.findUnique({ where: { key: "google_ai_api_key" } });
-    const apiKey = apiKeySetting?.value || process.env.GOOGLE_AI_API_KEY || "";
+    // Image generation is Gemini-only; never hand it a Groq key.
+    const { geminiKey: apiKey } = await getAiKeys();
 
     const handleSetting = await prisma.settings.findUnique({ where: { key: "instagram_handle" } });
     const handle = handleSetting?.value || process.env.INSTAGRAM_HANDLE || "@ai_signal_09";

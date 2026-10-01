@@ -11,6 +11,8 @@ import {
 } from "../_lib/data";
 
 export const dynamic = "force-dynamic";
+// Long enough for proxied worker actions (see proxyToBackend timeouts).
+export const maxDuration = 120;
 
 type Ctx = { params: Promise<{ path: string[] }> };
 

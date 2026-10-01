@@ -1,3 +1,4 @@
+import os
 """
 News researcher: fetches top AI stories from multiple sources
 and uses Grok to rank + summarize the best 5.
@@ -191,7 +192,7 @@ STORIES TO ANALYZE:
 Return ONLY valid JSON, no markdown, no explanation."""
 
         try:
-            if self.api_key.startswith("AIzaSy"):
+            if not self.api_key.startswith("gsk_"):
                 logger.info("Querying Gemini API for story ranking...")
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={self.api_key}"
                 headers = {"Content-Type": "application/json"}
@@ -219,7 +220,7 @@ Return ONLY valid JSON, no markdown, no explanation."""
                     "messages": [
                         {"role": "user", "content": prompt}
                     ],
-                    "model": "llama-3.3-70b-versatile",
+                    "model": os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b"),
                     "temperature": 0.7,
                     "response_format": {"type": "json_object"}
                 }

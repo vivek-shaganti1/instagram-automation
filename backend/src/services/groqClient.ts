@@ -3,16 +3,47 @@ import axios from 'axios';
 /**
  * Simple wrapper for Groq or Gemini API calls.
  */
-export async function groqRequest<T>(prompt: string, model: string = 'llama-3.3-70b-versatile'): Promise<T> {
+// Groq retires model IDs regularly (llama-3.x and mixtral are gone), so the
+// preferred list below is only a hint: we ask /models what the key can use
+// and keep the ones that exist, in preference order, then any other chat model.
+const GROQ_PREFERRED = ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.8-27b', 'llama-3.3-70b-versatile', 'llama-3.1-8b-instant'];
+const GROQ_NON_CHAT = /whisper|orpheus|prompt-guard|safeguard|tts|embed/i;
+let groqModelCache: { at: number; models: string[] } | null = null;
+
+async function resolveGroqModels(apiKey: string, requested?: string): Promise<string[]> {
+  if (!groqModelCache || Date.now() - groqModelCache.at > 60 * 60 * 1000) {
+    try {
+      const res = await axios.get('https://api.groq.com/openai/v1/models', {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        timeout: 10000,
+      });
+      const ids: string[] = (res.data?.data || [])
+        .filter((m: any) => m.active !== false && !GROQ_NON_CHAT.test(m.id))
+        .map((m: any) => m.id);
+      groqModelCache = { at: Date.now(), models: ids };
+    } catch (e: any) {
+      console.warn(`[API Warning] Could not list Groq models (${e.message}); using preferred list.`);
+      groqModelCache = { at: Date.now(), models: [] };
+    }
+  }
+  const available = groqModelCache.models;
+  const wanted = [requested, ...GROQ_PREFERRED].filter((m): m is string => !!m);
+  if (available.length === 0) return Array.from(new Set(wanted));
+  const ordered = wanted.filter((m) => available.includes(m));
+  for (const m of available) if (!ordered.includes(m)) ordered.push(m);
+  return ordered;
+}
+
+export async function groqRequest<T>(prompt: string, model?: string): Promise<T> {
   const apiKey = process.env.GROQ_API_KEY || '';
   if (!apiKey) {
     throw new Error('API key is not set in environment or settings');
   }
 
-  const isGemini = apiKey.startsWith('AIzaSy');
+  const isGemini = !apiKey.startsWith('gsk_');
   const models = isGemini 
-    ? ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'] 
-    : [model, 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'];
+    ? ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro'] 
+    : await resolveGroqModels(apiKey, model);
 
   let lastError: any = null;
 
@@ -22,7 +53,7 @@ export async function groqRequest<T>(prompt: string, model: string = 'llama-3.3-
       try {
         if (isGemini) {
           const response = await axios.post(
-            `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${apiKey}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent`,
             {
               contents: [{
                 parts: [{
@@ -36,6 +67,7 @@ export async function groqRequest<T>(prompt: string, model: string = 'llama-3.3-
             {
               headers: {
                 'Content-Type': 'application/json',
+                'x-goog-api-key': apiKey,
               },
               timeout: 25000,
             }

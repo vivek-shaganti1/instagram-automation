@@ -1,3 +1,4 @@
+import os
 import requests
 import json
 
@@ -38,7 +39,7 @@ class ContentGenerator:
     def _query_grok(self, prompt: str) -> dict:
         try:
             import re
-            if self.api_key.startswith("AIzaSy"):
+            if not self.api_key.startswith("gsk_"):
                 logger.info("Querying Gemini API for script content...")
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={self.api_key}"
                 headers = {"Content-Type": "application/json"}
@@ -66,7 +67,7 @@ class ContentGenerator:
                     "messages": [
                         {"role": "user", "content": prompt + "\n\nReturn ONLY the JSON structure. Do not include markdown code block syntax (like ```json ... ```)."}
                     ],
-                    "model": "llama-3.3-70b-versatile",
+                    "model": os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b"),
                     "temperature": 0.85,
                     "response_format": {"type": "json_object"}
                 }
